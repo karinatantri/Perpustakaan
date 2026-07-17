@@ -1,0 +1,9 @@
+# ============================================
+# FRONTEND ENV UNTUK PRODUCTION (Vercel)
+# Copy isi file ini ke Vercel Environment Variables
+# UPDATE URL dengan backend URL Anda setelah deploy!
+# ============================================
+
+# API Base URL - GANTI dengan URL Railway backend Anda
+VITE_API_BASE_URL=https://your-backend.railway.app/api
+

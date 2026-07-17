@@ -1,0 +1,38 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "backend/src/app.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/:match*",
+      "destination": "/backend/src/app.js"
+    },
+    {
+      "source": "/assets/:match*",
+      "destination": "/frontend/assets/:match*"
+    },
+    {
+      "source": "/Logo/:match*",
+      "destination": "/frontend/Logo/:match*"
+    },
+    {
+      "source": "/:file([^/]+\\.[a-zA-Z0-9]+)",
+      "destination": "/frontend/:file"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/frontend/index.html"
+    }
+  ]
+}
