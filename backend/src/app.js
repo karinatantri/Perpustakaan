@@ -46,6 +46,26 @@ try {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
+  // Root API endpoint listing
+  app.get('/api', (req, res) => {
+    res.json({ 
+      message: 'Perpustakaan API - Backend is running',
+      status: 'ok',
+      time: new Date().toISOString(),
+      endpoints: {
+        health: '/api/health',
+        publicStats: '/api/public/stats',
+        students: '/api/students',
+        books: '/api/books',
+        items: '/api/items',
+        transactions: '/api/transactions',
+        inventories: '/api/inventories',
+        auth: '/api/auth',
+        users: '/api/users'
+      }
+    });
+  });
+
   // Public stats endpoint for landing page (no auth required)
   app.get('/api/public/stats', async (req, res) => {
     try {
