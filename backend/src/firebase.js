@@ -13,23 +13,27 @@ function initFirebase() {
   // 3) File path: GOOGLE_APPLICATION_CREDENTIALS (for local development only)
   // 4) Fallback: applicationDefault() (for GCP environments)
 
-  const projectId = process.env.FIREBASE_PROJECT_ID;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  let projectId = process.env.FIREBASE_PROJECT_ID;
+  let privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  let clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
   const serviceAccountPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
+  // Sanitize values from env to prevent quotes, spaces, or newlines causing issues
+  if (projectId) projectId = projectId.trim().replace(/^"|"$/g, '');
+  if (clientEmail) clientEmail = clientEmail.trim().replace(/^"|"$/g, '');
+  if (privateKey) {
+    privateKey = privateKey.trim();
+    privateKey = privateKey.replace(/\\n/g, '\n').replace(/^"|"$/g, '');
+  }
 
   try {
     // Option 1: Individual fields (RECOMMENDED for production)
     if (projectId && privateKey && clientEmail) {
-      // Bersihkan privateKey bila ter-paste dengan kutip (") dari Vercel
-      let formattedPrivateKey = privateKey.replace(/\\n/g, '\n');
-      formattedPrivateKey = formattedPrivateKey.replace(/^"|"$/g, '');
-
       admin.initializeApp({
         credential: admin.credential.cert({
           projectId: projectId,
-          privateKey: formattedPrivateKey,
+          privateKey: privateKey,
           clientEmail: clientEmail
         })
       });
