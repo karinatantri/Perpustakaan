@@ -33,6 +33,7 @@ export default defineConfig({
       'localhost',
       '127.0.0.1',
       '192.168.1.12',
+      '192.168.100.185',
       'motivational-coleen-bizarre.ngrok-free.dev'
     ],
     https: httpsConfig,

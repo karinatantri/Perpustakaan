@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import api from '../api.js';
+import { registerPushNotifications, deregisterPushNotifications } from '../utils/pushNotifications.js';
 
 export default function MainLayout() {
   const navigate = useNavigate();
@@ -26,17 +27,36 @@ export default function MainLayout() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [readNotifications, setReadNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [showMobileMore, setShowMobileMore] = useState(false);
 
   useEffect(() => {
     if (user) {
       loadNotifications();
+      registerPushNotifications((notification) => {
+        loadNotifications();
+        const title = notification.title || 'Notifikasi Baru';
+        const body = notification.body || '';
+        alert(`${title}\n\n${body}`);
+      });
     }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && user) {
+        loadNotifications();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     const saved = localStorage.getItem('read_notifications');
     if (saved) {
       try {
         setReadNotifications(JSON.parse(saved));
       } catch (_) {}
     }
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [userRole]);
 
   const loadNotifications = async () => {
@@ -169,7 +189,8 @@ export default function MainLayout() {
     );
   };
   
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await deregisterPushNotifications();
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     navigate('/login');
@@ -287,51 +308,144 @@ export default function MainLayout() {
       
       {/* Bottom Navigation for Mobile */}
       <nav className="bottom-nav">
-        <div className="bottom-nav-scroll">
+        <div className="bottom-nav-scroll" style={{ justifyContent: 'space-around', overflow: 'hidden' }}>
           <NavLink to="/app" end className="bottom-nav-link">
             <span className="bottom-nav-icon">📊</span>
             <span className="bottom-nav-label">Dashboard</span>
           </NavLink>
-          {(isStaff || isIntern || isPrincipal || (userRole === 'teacher' && user.homeroomClass)) && (
-            <NavLink to="/app/students" className="bottom-nav-link">
-              <span className="bottom-nav-icon">👥</span>
-              <span className="bottom-nav-label">Siswa</span>
-            </NavLink>
-          )}
           <NavLink to="/app/books" className="bottom-nav-link">
             <span className="bottom-nav-icon">📖</span>
             <span className="bottom-nav-label">{isStaff || isIntern || isPrincipal ? 'Buku' : 'Katalog'}</span>
           </NavLink>
-          {isStaff && (
+          {isStaff ? (
             <NavLink to="/app/scan" className="bottom-nav-link">
               <span className="bottom-nav-icon">📷</span>
               <span className="bottom-nav-label">Scan</span>
             </NavLink>
-          )}
-          {isStaff && (
-            <NavLink to="/app/borrow" className="bottom-nav-link">
-              <span className="bottom-nav-icon">📤</span>
-              <span className="bottom-nav-label">Pinjam</span>
+          ) : (
+            <NavLink to="/app/transactions" className="bottom-nav-link">
+              <span className="bottom-nav-icon">📋</span>
+              <span className="bottom-nav-label">{userRole === 'teacher' ? 'Pinjaman Siswa' : 'Pinjaman'}</span>
             </NavLink>
           )}
-          {isStaff && (
-            <NavLink to="/app/return" className="bottom-nav-link">
-              <span className="bottom-nav-icon">📥</span>
-              <span className="bottom-nav-label">Kembali</span>
-            </NavLink>
-          )}
-          <NavLink to="/app/transactions" className="bottom-nav-link">
-            <span className="bottom-nav-icon">📋</span>
-            <span className="bottom-nav-label">{isStaff || isIntern || isPrincipal ? 'Transaksi' : userRole === 'teacher' ? 'Pinjaman Siswa' : 'Pinjaman'}</span>
-          </NavLink>
-          {isAdmin && (
-            <NavLink to="/app/accounts" className="bottom-nav-link">
-              <span className="bottom-nav-icon">🧑‍💼</span>
-              <span className="bottom-nav-label">Akun</span>
-            </NavLink>
-          )}
+          <button 
+            type="button" 
+            className="bottom-nav-link" 
+            style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+            onClick={() => setShowMobileMore(true)}
+          >
+            <span className="bottom-nav-icon">⚙️</span>
+            <span className="bottom-nav-label">Lainnya</span>
+          </button>
         </div>
       </nav>
+
+      {/* Drawer Bottom Sheet Menu Mobile */}
+      {showMobileMore && (
+        <div className="mobile-more-overlay" onClick={() => setShowMobileMore(false)}>
+          <div className="mobile-more-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="mobile-sheet-header">
+              <div className="mobile-sheet-user">
+                <div className="mobile-sheet-avatar">
+                  {(user?.name || user?.username)?.charAt(0).toUpperCase() || '?'}
+                </div>
+                <div className="mobile-sheet-details">
+                  <span className="mobile-sheet-name">{user?.name || user?.username}</span>
+                  <span className="mobile-sheet-role">{user?.role}</span>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                className="mobile-sheet-close" 
+                onClick={() => setShowMobileMore(false)}
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="mobile-sheet-nav">
+              {(isStaff || isIntern || isPrincipal || (userRole === 'teacher' && user.homeroomClass)) && (
+                <NavLink 
+                  to="/app/students" 
+                  className="mobile-sheet-link"
+                  onClick={() => setShowMobileMore(false)}
+                >
+                  <div className="mobile-sheet-link-content">
+                    <span className="mobile-sheet-link-icon">👥</span>
+                    <span>Data Siswa</span>
+                  </div>
+                  <span className="mobile-sheet-link-arrow">❯</span>
+                </NavLink>
+              )}
+              
+              {isStaff && (
+                <>
+                  <NavLink 
+                    to="/app/borrow" 
+                    className="mobile-sheet-link"
+                    onClick={() => setShowMobileMore(false)}
+                  >
+                    <div className="mobile-sheet-link-content">
+                      <span className="mobile-sheet-link-icon">📤</span>
+                      <span>Peminjaman</span>
+                    </div>
+                    <span className="mobile-sheet-link-arrow">❯</span>
+                  </NavLink>
+                  
+                  <NavLink 
+                    to="/app/return" 
+                    className="mobile-sheet-link"
+                    onClick={() => setShowMobileMore(false)}
+                  >
+                    <div className="mobile-sheet-link-content">
+                      <span className="mobile-sheet-link-icon">📥</span>
+                      <span>Pengembalian</span>
+                    </div>
+                    <span className="mobile-sheet-link-arrow">❯</span>
+                  </NavLink>
+
+                  <NavLink 
+                    to="/app/transactions" 
+                    className="mobile-sheet-link"
+                    onClick={() => setShowMobileMore(false)}
+                  >
+                    <div className="mobile-sheet-link-content">
+                      <span className="mobile-sheet-link-icon">📋</span>
+                      <span>Transaksi</span>
+                    </div>
+                    <span className="mobile-sheet-link-arrow">❯</span>
+                  </NavLink>
+                </>
+              )}
+              
+              {isAdmin && (
+                <NavLink 
+                  to="/app/accounts" 
+                  className="mobile-sheet-link"
+                  onClick={() => setShowMobileMore(false)}
+                >
+                  <div className="mobile-sheet-link-content">
+                    <span className="mobile-sheet-link-icon">🧑‍💼</span>
+                    <span>Pengaturan Akun</span>
+                  </div>
+                  <span className="mobile-sheet-link-arrow">❯</span>
+                </NavLink>
+              )}
+            </div>
+            
+            <button 
+              type="button" 
+              className="mobile-sheet-logout" 
+              onClick={() => {
+                setShowMobileMore(false);
+                handleLogout();
+              }}
+            >
+              🚪 Keluar dari Aplikasi
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -12,8 +12,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   </React.StrictMode>
 );
 
-// Service Worker Registration dengan Update Handling
-if ('serviceWorker' in navigator) {
+// Service Worker Registration dengan Update Handling (Hanya untuk Web non-Capacitor)
+const isCapacitor = typeof window !== 'undefined' && !!window.Capacitor;
+if ('serviceWorker' in navigator && !isCapacitor) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('/sw.js', { scope: '/' })

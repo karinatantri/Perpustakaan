@@ -3,6 +3,7 @@ const XLSX = require('xlsx');
 const bwipjs = require('bwip-js');
 const { getFirestore } = require('../firebase');
 const { auth } = require('../middleware/auth');
+const { sendPushNotificationToStudent } = require('../utils/notifications');
 
 const router = express.Router();
 const db = getFirestore();
@@ -102,6 +103,14 @@ router.post('/borrow', auth(['admin', 'officer']), async (req, res) => {
         t.update(itemRef, { status: 'borrowed', updatedAt: now });
       }
     });
+
+    // Send push notification asynchronously (do not block client response)
+    const formattedDueDate = due ? new Date(due).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : 'N/A';
+    sendPushNotificationToStudent(
+      studentId,
+      'Buku Berhasil Dipinjam 📚',
+      `Kamu telah berhasil meminjam ${itemDocs.length} buku. Batas jatuh tempo: ${formattedDueDate}.`
+    ).catch(e => console.error('Failed to trigger borrow notification:', e));
 
     res.status(201).json({ 
       message: 'Borrow transaction created',
@@ -229,6 +238,16 @@ router.post('/return', auth(['admin', 'officer']), async (req, res) => {
         t.update(txRef, updateData);
       }
     });
+
+    // Send push notification asynchronously (do not block client response)
+    const returnMsg = hasProblem 
+      ? `Pengembalian buku selesai dengan catatan denda: Rp ${totalFine.toLocaleString('id-ID')}.` 
+      : 'Terima kasih, buku kamu telah berhasil dikembalikan.';
+    sendPushNotificationToStudent(
+      txDoc.data().studentId,
+      hasProblem ? 'Pengembalian Buku (Ada Catatan) ⚠️' : 'Buku Berhasil Dikembalikan 💚',
+      returnMsg
+    ).catch(e => console.error('Failed to trigger return notification:', e));
 
     res.json({ 
       message: 'Return processed successfully',
@@ -377,36 +396,40 @@ router.get('/', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'princ
         return res.json([]);
       }
       
-      // Fetch all transactions and filter in-memory
-      const snap = await transactionsCol.get();
-      const data = [];
+      // Fetch recent transactions and filter in-memory to avoid fetching the entire database
+      const snap = await transactionsCol.orderBy('borrowDate', 'desc').limit(300).get();
+      const filteredTxs = [];
       for (const doc of snap.docs) {
         const tx = doc.data();
         if (studentIds.has(tx.studentId)) {
-          // Get student info
-          const studentDoc = studentsSnap.docs.find(d => d.id === tx.studentId);
-          const s = studentDoc ? studentDoc.data() : null;
-          const student = s ? { id: studentDoc.id, name: s.name, nis: s.nis || '' } : null;
-          
-          const itemsSnap = await txItemsCol.where('transactionId', '==', doc.id).get();
-          data.push({
-            id: doc.id,
-            ...tx,
-            student,
-            itemCount: itemsSnap.size
-          });
+          filteredTxs.push({ doc, tx });
         }
       }
-      // Sort in memory by borrowDate descending
-      data.sort((a, b) => {
-        const dateA = a.borrowDate ? new Date(a.borrowDate).getTime() : 0;
-        const dateB = b.borrowDate ? new Date(b.borrowDate).getTime() : 0;
-        return dateB - dateA;
-      });
+
+      // Slice to top 50
+      const slicedTxs = filteredTxs.slice(0, 50);
+
+      // Fetch transaction items in parallel
+      const data = await Promise.all(slicedTxs.map(async ({ doc, tx }) => {
+        const studentDoc = studentsSnap.docs.find(d => d.id === tx.studentId);
+        const s = studentDoc ? studentDoc.data() : null;
+        const student = s ? { id: studentDoc.id, name: s.name, nis: s.nis || '' } : null;
+        
+        const itemsSnap = await txItemsCol.where('transactionId', '==', doc.id).get();
+        return {
+          id: doc.id,
+          ...tx,
+          student,
+          itemCount: itemsSnap.size
+        };
+      }));
+
       return res.json(data);
     }
 
     let query = transactionsCol;
+    let isLimited = false;
+
     if (user.role === 'student') {
       const studentId = user.studentId;
       if (!studentId) {
@@ -415,43 +438,55 @@ router.get('/', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'princ
       query = query.where('studentId', '==', studentId);
     } else if (requestedStudentId) {
       query = query.where('studentId', '==', requestedStudentId);
+    } else {
+      // Admin, officer, principal, intern: limit to 50 recent transactions directly
+      query = query.orderBy('borrowDate', 'desc').limit(50);
+      isLimited = true;
     }
 
     const snap = await query.get();
-    const data = [];
+    
+    // Sort in memory by borrowDate descending if not already sorted on database
+    const docs = snap.docs;
+    if (!isLimited) {
+      docs.sort((a, b) => {
+        const txA = a.data();
+        const txB = b.data();
+        const dateA = txA.borrowDate ? new Date(txA.borrowDate).getTime() : 0;
+        const dateB = txB.borrowDate ? new Date(txB.borrowDate).getTime() : 0;
+        return dateB - dateA;
+      });
+    }
 
-    for (const doc of snap.docs) {
+    // Slice to top 50 before running extra database queries
+    const slicedDocs = isLimited ? docs : docs.slice(0, 50);
+
+    // Fetch details in parallel using Promise.all
+    const data = await Promise.all(slicedDocs.map(async (doc) => {
       const tx = doc.data();
       
-      // Get student info
+      const studentPromise = tx.studentId 
+        ? studentsCol.doc(tx.studentId).get() 
+        : Promise.resolve(null);
+      const itemsPromise = txItemsCol.where('transactionId', '==', doc.id).get();
+      
+      const [studentDoc, itemsSnap] = await Promise.all([studentPromise, itemsPromise]);
+      
       let student = null;
-      if (tx.studentId) {
-        const studentDoc = await studentsCol.doc(tx.studentId).get();
-        if (studentDoc.exists) {
-          const s = studentDoc.data();
-          student = { id: studentDoc.id, name: s.name, nis: s.nis || '' };
-        }
+      if (studentDoc && studentDoc.exists) {
+        const s = studentDoc.data();
+        student = { id: studentDoc.id, name: s.name, nis: s.nis || '' };
       }
 
-      // Get item count
-      const itemsSnap = await txItemsCol.where('transactionId', '==', doc.id).get();
-      
-      data.push({
+      return {
         id: doc.id,
         ...tx,
         student,
         itemCount: itemsSnap.size
-      });
-    }
+      };
+    }));
 
-    // Sort in memory by borrowDate descending
-    data.sort((a, b) => {
-      const dateA = a.borrowDate ? new Date(a.borrowDate).getTime() : 0;
-      const dateB = b.borrowDate ? new Date(b.borrowDate).getTime() : 0;
-      return dateB - dateA;
-    });
-
-    res.json(data.slice(0, 50));
+    res.json(data);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to fetch transactions' });
@@ -576,41 +611,177 @@ router.get('/by-receipt/:receiptNumber', auth(['admin', 'officer']), async (req,
   }
 });
 
+// Get dashboard stats and recent activity (highly optimized)
+router.get('/stats', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'principal']), async (req, res) => {
+  try {
+    const user = req.user || {};
+    const today = new Date();
+
+    // 1. Get total counts using Firestore count() aggregation (extremely fast)
+    const [booksCountSnap, studentsCountSnap] = await Promise.all([
+      booksCol.count().get(),
+      studentsCol.count().get()
+    ]);
+    const totalBooks = booksCountSnap.data().count;
+    const totalStudents = studentsCountSnap.data().count;
+
+    // 2. Fetch active loans (ongoing transactions)
+    let activeLoansQuery = transactionsCol.where('status', '==', 'ongoing');
+    if (user.role === 'student') {
+      activeLoansQuery = activeLoansQuery.where('studentId', '==', user.studentId);
+    }
+    const activeSnap = await activeLoansQuery.get();
+    
+    let activeLoansCount = 0;
+    let overdueBooksCount = 0;
+    let teacherStudentIds = new Set();
+
+    if (user.role === 'teacher') {
+      const homeroom = user.homeroomClass;
+      if (homeroom) {
+        const studentsSnap = await studentsCol.where('class', '==', homeroom).get();
+        studentsSnap.docs.forEach(doc => teacherStudentIds.add(doc.id));
+      }
+    }
+
+    activeSnap.forEach((doc) => {
+      const tx = doc.data();
+      if (user.role === 'teacher' && !teacherStudentIds.has(tx.studentId)) {
+        return; // Skip if not their homeroom student
+      }
+      activeLoansCount++;
+      if (tx.dueDate && new Date(tx.dueDate) < today) {
+        overdueBooksCount++;
+      }
+    });
+
+    // 3. Get recent transactions (top 8)
+    let recentSnap = [];
+    if (user.role === 'student') {
+      // Students have few transactions, so we can fetch all and sort/slice in-memory to avoid index requirement
+      const allStudentSnap = await transactionsCol.where('studentId', '==', user.studentId).get();
+      const sorted = allStudentSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      sorted.sort((a, b) => {
+        const dateA = a.borrowDate ? new Date(a.borrowDate).getTime() : 0;
+        const dateB = b.borrowDate ? new Date(b.borrowDate).getTime() : 0;
+        return dateB - dateA;
+      });
+      recentSnap = sorted.slice(0, 8);
+    } else if (user.role === 'teacher') {
+      // Fetch recent 150 transactions and filter in-memory to find their students' recent transactions
+      const snap = await transactionsCol.orderBy('borrowDate', 'desc').limit(150).get();
+      const filtered = [];
+      for (const doc of snap.docs) {
+        const tx = doc.data();
+        if (teacherStudentIds.has(tx.studentId)) {
+          filtered.push({ id: doc.id, ...tx });
+        }
+        if (filtered.length >= 8) break;
+      }
+      recentSnap = filtered;
+    } else {
+      // Admin/officer/principal/intern see recent globally
+      const snap = await transactionsCol.orderBy('borrowDate', 'desc').limit(8).get();
+      recentSnap = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    }
+
+    // Resolve student info and count items for recent transactions
+    const recentTransactions = await Promise.all(recentSnap.map(async (txData) => {
+      const id = txData.id;
+      const tx = txData;
+      
+      const studentPromise = tx.studentId 
+        ? studentsCol.doc(tx.studentId).get() 
+        : Promise.resolve(null);
+      const itemsPromise = txItemsCol.where('transactionId', '==', id).get();
+      
+      const [studentDoc, itemsSnap] = await Promise.all([studentPromise, itemsPromise]);
+      
+      let student = null;
+      if (studentDoc && studentDoc.exists) {
+        const s = studentDoc.data();
+        student = { id: studentDoc.id, name: s.name, nis: s.nis || '' };
+      }
+
+      return {
+        id,
+        ...tx,
+        student,
+        itemCount: itemsSnap.size
+      };
+    }));
+
+    res.json({
+      totalBooks,
+      totalStudents,
+      activeLoans: activeLoansCount,
+      overdueBooks: overdueBooksCount,
+      recentTransactions
+    });
+  } catch (err) {
+    console.error('Failed to get dashboard stats:', err);
+    res.status(500).json({ message: 'Failed to fetch dashboard statistics' });
+  }
+});
+
 // Get transaction items with book details
 router.get('/:id/items', auth(['admin', 'officer']), async (req, res) => {
   try {
     const { id } = req.params;
     const txItemsSnap = await txItemsCol.where('transactionId', '==', id).get();
     
-    const items = [];
-    for (const doc of txItemsSnap.docs) {
-      const txItem = doc.data();
-      const itemDoc = await itemsCol.doc(txItem.itemId).get();
-      const itemData = itemDoc.exists ? itemDoc.data() : {};
-      
-      let book = null;
-      if (itemData.bookId) {
-        const bookDoc = await booksCol.doc(itemData.bookId).get();
-        if (bookDoc.exists) {
-          book = { id: bookDoc.id, ...bookDoc.data() };
-        }
-      }
+    const txItems = txItemsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-      items.push({
-        id: doc.id,
+    // Fetch all items in parallel
+    const itemDocs = txItems.length > 0 
+      ? await Promise.all(txItems.map(txItem => itemsCol.doc(txItem.itemId).get()))
+      : [];
+
+    const itemsMap = {};
+    itemDocs.forEach(doc => {
+      if (doc.exists) {
+        itemsMap[doc.id] = { id: doc.id, ...doc.data() };
+      }
+    });
+
+    // Extract unique bookIds
+    const bookIds = [...new Set(
+      Object.values(itemsMap)
+        .map(item => item.bookId)
+        .filter(Boolean)
+    )];
+
+    // Fetch all books in parallel
+    const bookDocs = bookIds.length > 0
+      ? await Promise.all(bookIds.map(bookId => booksCol.doc(bookId).get()))
+      : [];
+
+    const booksMap = {};
+    bookDocs.forEach(doc => {
+      if (doc.exists) {
+        booksMap[doc.id] = { id: doc.id, ...doc.data() };
+      }
+    });
+
+    const items = txItems.map(txItem => {
+      const itemData = itemsMap[txItem.itemId] || {};
+      const bookData = itemData.bookId ? booksMap[itemData.bookId] : null;
+
+      return {
+        id: txItem.id,
         itemId: txItem.itemId,
         condition: txItem.condition || 'good',
         fine: txItem.fine || 0,
         notes: txItem.notes || '',
         item: {
-          id: itemDoc.id,
+          id: itemData.id || txItem.itemId,
           uniqueCode: itemData.uniqueCode,
           status: itemData.status,
           ...itemData
         },
-        book
-      });
-    }
+        book: bookData
+      };
+    });
 
     res.json(items);
   } catch (err) {
@@ -638,18 +809,44 @@ router.get('/:id/return-receipt', auth(['admin', 'officer', 'intern', 'teacher',
     const items = [];
     let totalFine = 0;
     
-    for (const d of txItemsSnap.docs) {
-      const txItem = d.data();
-      const itemDoc = await itemsCol.doc(txItem.itemId).get();
-      const itemData = itemDoc.exists ? itemDoc.data() : {};
-      let bookTitle = '';
-      if (itemData.bookId) {
-        const bookDoc = await booksCol.doc(itemData.bookId).get();
-        if (bookDoc.exists) {
-          const b = bookDoc.data();
-          bookTitle = b.title || '';
-        }
+    const txItems = txItemsSnap.docs.map(doc => doc.data());
+
+    // Fetch all items in parallel
+    const itemDocs = txItems.length > 0 
+      ? await Promise.all(txItems.map(txItem => itemsCol.doc(txItem.itemId).get()))
+      : [];
+
+    const itemsMap = {};
+    itemDocs.forEach(doc => {
+      if (doc.exists) {
+        itemsMap[doc.id] = doc.data();
       }
+    });
+
+    // Extract unique bookIds
+    const bookIds = [...new Set(
+      Object.values(itemsMap)
+        .map(item => item.bookId)
+        .filter(Boolean)
+    )];
+
+    // Fetch all books in parallel
+    const bookDocs = bookIds.length > 0
+      ? await Promise.all(bookIds.map(bookId => booksCol.doc(bookId).get()))
+      : [];
+
+    const booksMap = {};
+    bookDocs.forEach(doc => {
+      if (doc.exists) {
+        booksMap[doc.id] = doc.data();
+      }
+    });
+
+    for (const txItem of txItems) {
+      const itemData = itemsMap[txItem.itemId] || {};
+      const bookData = itemData.bookId ? booksMap[itemData.bookId] : null;
+      const bookTitle = bookData ? (bookData.title || '') : '';
+
       const fine = Number(txItem.fine) || 0;
       totalFine += fine;
       items.push({
@@ -713,13 +910,27 @@ router.get('/:id/return-receipt', auth(['admin', 'officer', 'intern', 'teacher',
 <html>
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <title>Struk Pengembalian Buku</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     @page { size: A4; margin: 10mm; }
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 10px; background: white; width: 210mm; min-height: 297mm; margin: 0 auto; padding: 10mm; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 10px; background: white; margin: 0 auto; padding: 10px; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    @media screen {
+      body {
+        width: 100%;
+        max-width: 210mm;
+      }
+    }
+    @media print {
+      body {
+        width: 210mm;
+        min-height: 297mm;
+        padding: 10mm;
+      }
+    }
     .receipt-container { width: 100%; background: white; border: 2px solid #1d4ed8; border-radius: 8px; padding: 14px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    .header { text-align: center; margin-bottom: 12px; padding: 10px; background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%); border-radius: 6px; color: white; }
+    .header { text-align: center; margin-bottom: 12px; padding: 10px; background-color: #1d4ed8; background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%); border-radius: 6px; color: white; }
     .logo { font-size: 24px; font-weight: bold; margin-bottom: 4px; text-shadow: 2px 2px 4px rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; gap: 8px; }
     .logo-img { height: 50px; width: auto; object-fit: contain; }
     .school-name { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
@@ -736,7 +947,7 @@ router.get('/:id/return-receipt', auth(['admin', 'officer', 'intern', 'teacher',
     .meta-value { color: #0f172a; font-weight: 700; font-size: 11px; }
     table { width: 100%; border-collapse: collapse; margin: 8px 0 6px 0; font-size: 9px; page-break-inside: auto; }
     th, td { border: 1px solid #cbd5e1; padding: 4px 4px; text-align: left; page-break-inside: avoid; page-break-before: auto; page-break-after: auto; }
-    th { background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%); color: white; font-weight: 700; font-size: 10px; text-align: center; }
+    th { background-color: #1d4ed8; background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%); color: white; font-weight: 700; font-size: 10px; text-align: center; }
     td { font-size: 9px; }
     tr:nth-child(even) { background: #f8fafc; }
     tr:hover { background: #e0e7ff; }
@@ -757,7 +968,72 @@ router.get('/:id/return-receipt', auth(['admin', 'officer', 'intern', 'teacher',
     .sign-box { flex: 1; text-align: center; padding: 12px; background: #f8fafc; border-radius: 6px; border: 1px solid #cbd5e1; }
     .sign-label { font-size: 11px; color: #475569; font-weight: 600; margin-bottom: 40px; display: block; }
     .sign-line { border-top: 2px solid #0f172a; padding-top: 4px; margin-top: 4px; font-size: 10px; color: #64748b; }
-    @media print { body { background: white; padding: 0; margin: 0; width: 210mm; min-height: 297mm; } .receipt-container { box-shadow: none; border: none; padding: 12mm; } @page { margin: 0; } }
+    @media print {
+      html, body, .receipt-container, .header, th, td, .qr-side, .meta, .sign-box {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      body {
+        background: white !important;
+        padding: 0;
+        margin: 0;
+        width: 210mm;
+        min-height: 297mm;
+      }
+      .receipt-container {
+        box-shadow: none !important;
+        border: 2px solid #1d4ed8 !important;
+        padding: 12mm !important;
+      }
+      .header {
+        background-color: #1d4ed8 !important;
+        background: #1d4ed8 !important;
+        color: white !important;
+        border: 2px solid #1d4ed8 !important;
+      }
+      th {
+        background-color: #1d4ed8 !important;
+        background: #1d4ed8 !important;
+        color: white !important;
+        border: 1px solid #1d4ed8 !important;
+      }
+
+      .qr-side {
+        background-color: #f8fafc !important;
+        background: #f8fafc !important;
+        border: 2px dashed #cbd5e1 !important;
+      }
+      .meta {
+        background-color: #f8fafc !important;
+        background: #f8fafc !important;
+      }
+      .sign-box {
+        background-color: #f8fafc !important;
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1 !important;
+      }
+      @page {
+        margin: 0;
+      }
+    }
+
+
+
+    @media (max-width: 600px) {
+      .top-grid {
+        grid-template-columns: 1fr !important;
+      }
+      .qr-side {
+        justify-self: center !important;
+        margin-top: 10px !important;
+        width: 100% !important;
+        max-width: 170px !important;
+      }
+      .sign-row {
+        flex-direction: column !important;
+        gap: 12px !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -886,18 +1162,44 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'intern', 'teacher', 'stude
       const items = [];
       let totalFine = 0;
       
-      for (const d of txItemsSnap.docs) {
-        const txItem = d.data();
-        const itemDoc = await itemsCol.doc(txItem.itemId).get();
-        const itemData = itemDoc.exists ? itemDoc.data() : {};
-        let bookTitle = '';
-        if (itemData.bookId) {
-          const bookDoc = await booksCol.doc(itemData.bookId).get();
-          if (bookDoc.exists) {
-            const b = bookDoc.data();
-            bookTitle = b.title || '';
-          }
+      const txItems = txItemsSnap.docs.map(doc => doc.data());
+
+      // Fetch all items in parallel
+      const itemDocs = txItems.length > 0 
+        ? await Promise.all(txItems.map(txItem => itemsCol.doc(txItem.itemId).get()))
+        : [];
+
+      const itemsMap = {};
+      itemDocs.forEach(doc => {
+        if (doc.exists) {
+          itemsMap[doc.id] = doc.data();
         }
+      });
+
+      // Extract unique bookIds
+      const bookIds = [...new Set(
+        Object.values(itemsMap)
+          .map(item => item.bookId)
+          .filter(Boolean)
+      )];
+
+      // Fetch all books in parallel
+      const bookDocs = bookIds.length > 0
+        ? await Promise.all(bookIds.map(bookId => booksCol.doc(bookId).get()))
+        : [];
+
+      const booksMap = {};
+      bookDocs.forEach(doc => {
+        if (doc.exists) {
+          booksMap[doc.id] = doc.data();
+        }
+      });
+
+      for (const txItem of txItems) {
+        const itemData = itemsMap[txItem.itemId] || {};
+        const bookData = itemData.bookId ? booksMap[itemData.bookId] : null;
+        const bookTitle = bookData ? (bookData.title || '') : '';
+
         const fine = Number(txItem.fine) || 0;
         totalFine += fine;
         items.push({
@@ -961,9 +1263,10 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'intern', 'teacher', 'stude
 <html>
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <title>Struk Pengembalian Buku</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     @page {
       size: A4;
       margin: 15mm;
@@ -972,10 +1275,23 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'intern', 'teacher', 'stude
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
       font-size: 10px; 
       background: white;
-      width: 210mm;
-      min-height: 297mm;
       margin: 0 auto;
-      padding: 15mm;
+      padding: 15px;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    @media screen {
+      body {
+        width: 100%;
+        max-width: 210mm;
+      }
+    }
+    @media print {
+      body {
+        width: 210mm;
+        min-height: 297mm;
+        padding: 15mm;
+      }
     }
     .receipt-container {
       width: 100%;
@@ -989,6 +1305,7 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'intern', 'teacher', 'stude
       text-align: center;
       margin-bottom: 20px;
       padding: 15px;
+      background-color: #1d4ed8;
       background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%);
       border-radius: 6px;
       color: white;
@@ -1062,6 +1379,7 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'intern', 'teacher', 'stude
       text-align: left;
     }
     th {
+      background-color: #1d4ed8;
       background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%);
       color: white;
       font-weight: 700;
@@ -1175,20 +1493,69 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'intern', 'teacher', 'stude
       color: #64748b;
     }
     @media print {
+      html, body, .receipt-container, .header, th, td, .qr-side, .meta, .sign-box {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
       body { 
-        background: white; 
+        background: white !important; 
         padding: 0;
         margin: 0;
         width: 210mm;
         min-height: 297mm;
       }
       .receipt-container { 
-        box-shadow: none;
-        border: none;
-        padding: 15mm;
+        box-shadow: none !important;
+        border: 2px solid #1d4ed8 !important;
+        padding: 15mm !important;
+      }
+      .header {
+        background-color: #1d4ed8 !important;
+        background: #1d4ed8 !important;
+        color: white !important;
+        border: 2px solid #1d4ed8 !important;
+      }
+      th {
+        background-color: #1d4ed8 !important;
+        background: #1d4ed8 !important;
+        color: white !important;
+        border: 1px solid #1d4ed8 !important;
+      }
+
+      .qr-side {
+        background-color: #f8fafc !important;
+        background: #f8fafc !important;
+        border: 2px dashed #cbd5e1 !important;
+      }
+      .meta {
+        background-color: #f8fafc !important;
+        background: #f8fafc !important;
+      }
+      .sign-box {
+        background-color: #f8fafc !important;
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1 !important;
       }
       @page {
         margin: 0;
+      }
+    }
+
+
+
+    @media (max-width: 600px) {
+      .top-grid {
+        grid-template-columns: 1fr !important;
+      }
+      .qr-side {
+        justify-self: center !important;
+        margin-top: 10px !important;
+        width: 100% !important;
+        max-width: 170px !important;
+      }
+      .sign-row {
+        flex-direction: column !important;
+        gap: 12px !important;
       }
     }
   </style>
@@ -1286,20 +1653,45 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'intern', 'teacher', 'stude
 
     const txItemsSnap = await txItemsCol.where('transactionId', '==', id).get();
     const items = [];
-    // Ambil detail item + buku
-    // eslint-disable-next-line no-restricted-syntax
-    for (const d of txItemsSnap.docs) {
-      const txItem = d.data();
-      const itemDoc = await itemsCol.doc(txItem.itemId).get();
-      const itemData = itemDoc.exists ? itemDoc.data() : {};
-      let bookTitle = '';
-      if (itemData.bookId) {
-        const bookDoc = await booksCol.doc(itemData.bookId).get();
-        if (bookDoc.exists) {
-          const b = bookDoc.data();
-          bookTitle = b.title || '';
-        }
+    
+    const txItems = txItemsSnap.docs.map(doc => doc.data());
+
+    // Fetch all items in parallel
+    const itemDocs = txItems.length > 0 
+      ? await Promise.all(txItems.map(txItem => itemsCol.doc(txItem.itemId).get()))
+      : [];
+
+    const itemsMap = {};
+    itemDocs.forEach(doc => {
+      if (doc.exists) {
+        itemsMap[doc.id] = doc.data();
       }
+    });
+
+    // Extract unique bookIds
+    const bookIds = [...new Set(
+      Object.values(itemsMap)
+        .map(item => item.bookId)
+        .filter(Boolean)
+    )];
+
+    // Fetch all books in parallel
+    const bookDocs = bookIds.length > 0
+      ? await Promise.all(bookIds.map(bookId => booksCol.doc(bookId).get()))
+      : [];
+
+    const booksMap = {};
+    bookDocs.forEach(doc => {
+      if (doc.exists) {
+        booksMap[doc.id] = doc.data();
+      }
+    });
+
+    for (const txItem of txItems) {
+      const itemData = itemsMap[txItem.itemId] || {};
+      const bookData = itemData.bookId ? booksMap[itemData.bookId] : null;
+      const bookTitle = bookData ? (bookData.title || '') : '';
+
       items.push({
         code: itemData.uniqueCode || '',
         title: bookTitle
@@ -1356,13 +1748,27 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'intern', 'teacher', 'stude
 <html>
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <title>Struk Peminjaman Buku</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     @page { size: A4; margin: 10mm; }
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 10px; background: white; width: 210mm; min-height: 297mm; margin: 0 auto; padding: 10mm; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 10px; background: white; margin: 0 auto; padding: 10px; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    @media screen {
+      body {
+        width: 100%;
+        max-width: 210mm;
+      }
+    }
+    @media print {
+      body {
+        width: 210mm;
+        min-height: 297mm;
+        padding: 10mm;
+      }
+    }
     .receipt-container { width: 100%; background: white; border: 2px solid #1d4ed8; border-radius: 8px; padding: 14px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    .header { text-align: center; margin-bottom: 12px; padding: 10px; background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%); border-radius: 6px; color: white; }
+    .header { text-align: center; margin-bottom: 12px; padding: 10px; background-color: #1d4ed8; background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%); border-radius: 6px; color: white; }
     .logo { font-size: 24px; font-weight: bold; margin-bottom: 4px; text-shadow: 2px 2px 4px rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; gap: 8px; }
     .logo-img { height: 50px; width: auto; object-fit: contain; }
     .school-name { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
@@ -1380,7 +1786,7 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'intern', 'teacher', 'stude
     .meta-value { color: #0f172a; font-weight: 700; font-size: 11px; }
     table { width: 100%; border-collapse: collapse; margin: 8px 0 6px 0; font-size: 9px; page-break-inside: auto; }
     th, td { border: 1px solid #cbd5e1; padding: 4px 4px; text-align: left; page-break-inside: avoid; page-break-before: auto; page-break-after: auto; }
-    th { background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%); color: white; font-weight: 700; font-size: 10px; text-align: center; }
+    th { background-color: #1d4ed8; background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%); color: white; font-weight: 700; font-size: 10px; text-align: center; }
     td { font-size: 9px; }
     tr:nth-child(even) { background: #f8fafc; }
     tr:hover { background: #e0e7ff; }
@@ -1389,7 +1795,72 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'intern', 'teacher', 'stude
     .sign-label { font-size: 11px; color: #475569; font-weight: 600; margin-bottom: 40px; display: block; }
     .sign-line { border-top: 2px solid #0f172a; padding-top: 4px; margin-top: 4px; font-size: 10px; color: #64748b; }
     .footer { margin-top: 18px; padding-top: 12px; border-top: 2px solid #e2e8f0; text-align: center; font-size: 9px; color: #94a3b8; font-style: italic; }
-    @media print { body { background: white; padding: 0; margin: 0; width: 210mm; min-height: 297mm; } .receipt-container { box-shadow: none; border: none; padding: 12mm; } @page { margin: 0; } }
+    @media print {
+      html, body, .receipt-container, .header, th, td, .qr-side, .meta, .sign-box {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      body {
+        background: white !important;
+        padding: 0;
+        margin: 0;
+        width: 210mm;
+        min-height: 297mm;
+      }
+      .receipt-container {
+        box-shadow: none !important;
+        border: 2px solid #1d4ed8 !important;
+        padding: 12mm !important;
+      }
+      .header {
+        background-color: #1d4ed8 !important;
+        background: #1d4ed8 !important;
+        color: white !important;
+        border: 2px solid #1d4ed8 !important;
+      }
+      th {
+        background-color: #1d4ed8 !important;
+        background: #1d4ed8 !important;
+        color: white !important;
+        border: 1px solid #1d4ed8 !important;
+      }
+
+      .qr-side {
+        background-color: #f8fafc !important;
+        background: #f8fafc !important;
+        border: 2px dashed #cbd5e1 !important;
+      }
+      .meta {
+        background-color: #f8fafc !important;
+        background: #f8fafc !important;
+      }
+      .sign-box {
+        background-color: #f8fafc !important;
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1 !important;
+      }
+      @page {
+        margin: 0;
+      }
+    }
+
+
+
+    @media (max-width: 600px) {
+      .top-grid {
+        grid-template-columns: 1fr !important;
+      }
+      .qr-side {
+        justify-self: center !important;
+        margin-top: 10px !important;
+        width: 100% !important;
+        max-width: 170px !important;
+      }
+      .sign-row {
+        flex-direction: column !important;
+        gap: 12px !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -1466,6 +1937,8 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'intern', 'teacher', 'stude
   }
 });
 
+
+
 // Export transactions to Excel
 router.get('/export', auth(['admin', 'officer', 'intern', 'principal']), async (req, res) => {
   try {
@@ -1473,24 +1946,69 @@ router.get('/export', auth(['admin', 'officer', 'intern', 'principal']), async (
     const transactions = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     
     // Get all students and books for lookup
-    const studentsSnap = await studentsCol.get();
+    const [studentsSnap, booksSnap] = await Promise.all([
+      studentsCol.get(),
+      booksCol.get()
+    ]);
+    
     const studentsMap = {};
     studentsSnap.docs.forEach((d) => {
       studentsMap[d.id] = d.data();
     });
     
-    const booksSnap = await booksCol.get();
     const booksMap = {};
     booksSnap.docs.forEach((d) => {
       booksMap[d.id] = d.data();
     });
     
+    // Fetch all transaction items in parallel batches of 30 transaction IDs
+    const txIds = transactions.map(tx => tx.id);
+    const batchSize = 30;
+    const txItemsPromises = [];
+    for (let i = 0; i < txIds.length; i += batchSize) {
+      const batchIds = txIds.slice(i, i + batchSize);
+      txItemsPromises.push(txItemsCol.where('transactionId', 'in', batchIds).get());
+    }
+    const txItemsSnaps = await Promise.all(txItemsPromises);
+    
+    // Group transaction items by transactionId
+    const txItemsMap = {};
+    txItemsSnaps.forEach(snap => {
+      snap.docs.forEach(doc => {
+        const item = doc.data();
+        if (!txItemsMap[item.transactionId]) {
+          txItemsMap[item.transactionId] = [];
+        }
+        txItemsMap[item.transactionId].push(item);
+      });
+    });
+
+    // Extract all unique itemIds
+    const allItemIds = [...new Set(
+      Object.values(txItemsMap)
+        .flat()
+        .map(txItem => txItem.itemId)
+        .filter(Boolean)
+    )];
+
+    // Fetch all items in parallel
+    const itemDocs = allItemIds.length > 0
+      ? await Promise.all(allItemIds.map(itemId => itemsCol.doc(itemId).get()))
+      : [];
+
+    const itemsMap = {};
+    itemDocs.forEach(doc => {
+      if (doc.exists) {
+        itemsMap[doc.id] = doc.data();
+      }
+    });
+
     const data = [];
     for (const tx of transactions) {
       const student = studentsMap[tx.studentId] || {};
-      const txItemsSnap = await txItemsCol.where('transactionId', '==', tx.id).get();
+      const txItems = txItemsMap[tx.id] || [];
       
-      if (txItemsSnap.empty) {
+      if (txItems.length === 0) {
         // Transaction without items
         data.push({
           No: data.length + 1,
@@ -1505,10 +2023,8 @@ router.get('/export', auth(['admin', 'officer', 'intern', 'principal']), async (
         });
       } else {
         // Transaction with items
-        for (const itemDoc of txItemsSnap.docs) {
-          const itemData = itemDoc.data();
-          const itemSnap = await itemsCol.doc(itemData.itemId).get();
-          const item = itemSnap.data() || {};
+        for (const txItem of txItems) {
+          const item = itemsMap[txItem.itemId] || {};
           const book = booksMap[item.bookId] || {};
           
           data.push({

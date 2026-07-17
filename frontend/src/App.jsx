@@ -31,6 +31,10 @@ export default function App() {
   const [installPromptMode, setInstallPromptMode] = useState('beforeinstallprompt'); // 'beforeinstallprompt' | 'ios_fallback' | 'android_fallback'
 
   useEffect(() => {
+    // Jangan jalankan prompt instalasi PWA jika dijalankan di dalam aplikasi native (Capacitor/Android)
+    const isCapacitor = typeof window !== 'undefined' && !!window.Capacitor;
+    if (isCapacitor) return;
+
     const PROMPTED_KEY = 'pwa_install_prompted_v1';
 
     const isMobile = () =>

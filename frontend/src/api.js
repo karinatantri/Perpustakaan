@@ -2,6 +2,17 @@ import axios from 'axios';
 
 function resolveApiBase() {
   const fromEnv = import.meta.env.VITE_API_BASE_URL;
+  const isCapacitor = typeof window !== 'undefined' && !!window.Capacitor;
+
+  if (isCapacitor) {
+    // Di native app (Android/iOS via Capacitor), relative URL '/api' tidak akan bekerja.
+    // Kita harus selalu menggunakan URL absolut.
+    if (fromEnv) {
+      return fromEnv;
+    }
+    // Default fallback jika env kosong di emulator Android (localhost komputer = 10.0.2.2)
+    return 'http://10.0.2.2:4000/api';
+  }
 
   // Jika ini mode dev, atau env var dikosongkan, lebih aman gunakan path relatif '/api'
   // Di dev mode (lokal), Vite proxy sudah diatur untuk merutekan '/api' ke backend localhost:4000

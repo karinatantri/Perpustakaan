@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../api.js';
 import QrScanner from '../components/QrScanner.jsx';
+import ReceiptModal from '../components/ReceiptModal.jsx';
 import { normalizeScannedText } from '../utils/scanNormalize.js';
 
 export default function ReturnPage() {
@@ -18,6 +19,8 @@ export default function ReturnPage() {
   const [officerName, setOfficerName] = useState('');
   const [officerTitle, setOfficerTitle] = useState('Petugas Perpustakaan');
   const [message, setMessage] = useState('');
+  const [receiptHtml, setReceiptHtml] = useState('');
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [scanType, setScanType] = useState(''); // 'receipt' or 'book'
@@ -430,14 +433,8 @@ export default function ReturnPage() {
                       const res = await api.get(`/transactions/${selectedTransaction.id}/return-receipt`, {
                         responseType: 'text'
                       });
-                      const w = window.open('', '_blank');
-                      if (w) {
-                        w.document.open();
-                        w.document.write(res.data);
-                        w.document.close();
-                      } else {
-                        alert('Popup diblokir. Silakan izinkan popup untuk browser ini.');
-                      }
+                      setReceiptHtml(res.data);
+                      setShowReceiptModal(true);
                     } catch (err) {
                       console.error('Receipt error:', err);
                       alert('Gagal membuka struk. Silakan cek console untuk detail.');
@@ -476,14 +473,8 @@ export default function ReturnPage() {
                         const res = await api.get(`/transactions/${selectedTransaction.id}/return-receipt`, {
                           responseType: 'text'
                         });
-                        const w = window.open('', '_blank');
-                        if (w) {
-                          w.document.open();
-                          w.document.write(res.data);
-                          w.document.close();
-                        } else {
-                          alert('Popup diblokir. Silakan izinkan popup untuk browser ini.');
-                        }
+                        setReceiptHtml(res.data);
+                        setShowReceiptModal(true);
                       } catch (err) {
                         console.error('Receipt error:', err);
                         alert('Gagal membuka struk. Silakan cek console untuk detail.');
@@ -741,14 +732,8 @@ export default function ReturnPage() {
                       const res = await api.get(`/transactions/${returnSuccess.transactionId}/return-receipt`, {
                         responseType: 'text'
                       });
-                      const w = window.open('', '_blank');
-                      if (w) {
-                        w.document.open();
-                        w.document.write(res.data);
-                        w.document.close();
-                      } else {
-                        alert('Popup diblokir. Silakan izinkan popup untuk browser ini.');
-                      }
+                      setReceiptHtml(res.data);
+                      setShowReceiptModal(true);
                     } catch (err) {
                       console.error('Receipt error:', err);
                       let errorMsg = 'Gagal membuka struk';
@@ -890,6 +875,11 @@ export default function ReturnPage() {
           </div>
         </div>
       )}
+      <ReceiptModal
+        isOpen={showReceiptModal}
+        onClose={() => setShowReceiptModal(false)}
+        htmlContent={receiptHtml}
+      />
     </div>
   );
 }

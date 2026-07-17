@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import api from '../api.js';
+import { downloadOrShareImage } from '../utils/downloadHelper.js';
 
 export default function BooksPage() {
   const userStr = localStorage.getItem('user');
@@ -569,9 +571,18 @@ export default function BooksPage() {
       )}
 
       {/* Modal QR Codes */}
-      {showQrModal && selectedBook && (
-        <div className="modal-overlay" onClick={() => setShowQrModal(false)}>
-          <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
+      {showQrModal && selectedBook && createPortal(
+        <div 
+          className="modal-overlay modal-overlay-fullscreen" 
+          onClick={() => setShowQrModal(false)}
+          style={{
+            zIndex: 99999,
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            background: 'rgba(15, 23, 42, 0.45)'
+          }}
+        >
+          <div className="modal-content modal-large modal-fullscreen-mobile" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>QR Codes: {selectedBook.title}</h3>
               <button className="modal-close" onClick={() => setShowQrModal(false)}>✕</button>
@@ -587,7 +598,10 @@ export default function BooksPage() {
                       <p><strong>Kategori:</strong> {selectedBook.category || '-'}</p>
                       <p><strong>Kode Buku:</strong> <span className="qr-code-text">{selectedBook.id}</span></p>
                       <p><strong>Stok:</strong> {selectedBook.totalCopies || 0} eksemplar</p>
-                      <p className="qr-note">📌 QR code ini sama untuk semua eksemplar buku ini</p>
+                      <p className="qr-note">
+                        📌 QR code ini sama untuk semua eksemplar buku ini.
+                        {window.Capacitor && ' Tips: Jika unduhan otomatis tidak merespon, silakan tekan lama gambar QR Code di atas untuk menyimpannya langsung ke galeri.'}
+                      </p>
                     </div>
                   </div>
                   <div className="qr-actions">
@@ -595,10 +609,8 @@ export default function BooksPage() {
                       type="button"
                       className="btn-primary"
                       onClick={() => {
-                        const link = document.createElement('a');
-                        link.href = selectedBook.qrCodeUrl;
-                        link.download = `QR-${selectedBook.title.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
-                        link.click();
+                        const filename = `QR-${selectedBook.title.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
+                        downloadOrShareImage(selectedBook.qrCodeUrl, filename);
                       }}
                     >
                       💾 Download QR Code
@@ -607,7 +619,22 @@ export default function BooksPage() {
                       type="button"
                       className="btn-secondary"
                       onClick={() => {
-                        window.print();
+                        if (window.AndroidApp) {
+                          const qrHtml = `
+                            <html>
+                              <body style="text-align: center; margin: 0; padding: 20px; font-family: sans-serif;">
+                                <div style="margin: 50px auto; max-width: 320px; border: 1px solid #e2e8f0; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+                                  <img src="${selectedBook.qrCodeUrl}" style="width: 240px; height: 240px; display: block; margin: 0 auto 15px auto;" />
+                                  <h3 style="margin: 0 0 5px 0; font-size: 18px; color: #1e293b;">${selectedBook.title}</h3>
+                                  <p style="margin: 0; font-size: 14px; color: #64748b;">Kode Buku: ${selectedBook.id}</p>
+                                </div>
+                              </body>
+                            </html>
+                          `;
+                          window.AndroidApp.printHtml(qrHtml);
+                        } else {
+                          window.print();
+                        }
                       }}
                     >
                       🖨️ Cetak QR Code
@@ -628,7 +655,8 @@ export default function BooksPage() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Modal Edit Buku */}

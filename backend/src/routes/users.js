@@ -127,6 +127,46 @@ router.delete('/:id', auth(['admin']), async (req, res) => {
   }
 });
 
+// Register FCM token
+router.post('/register-fcm-token', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'principal']), async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ message: 'Token is required' });
+    }
+    const userId = req.user.id;
+    
+    // Save to fcm_tokens collection
+    const fcmTokensCol = db.collection('fcm_tokens');
+    await fcmTokensCol.doc(token).set({
+      userId,
+      token,
+      updatedAt: new Date().toISOString()
+    });
+    
+    res.json({ message: 'FCM token registered successfully' });
+  } catch (err) {
+    console.error('Failed to register FCM token:', err);
+    res.status(500).json({ message: 'Failed to register token' });
+  }
+});
+
+// Deregister FCM token
+router.post('/deregister-fcm-token', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'principal']), async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ message: 'Token is required' });
+    }
+    const fcmTokensCol = db.collection('fcm_tokens');
+    await fcmTokensCol.doc(token).delete();
+    res.json({ message: 'FCM token deregistered successfully' });
+  } catch (err) {
+    console.error('Failed to deregister FCM token:', err);
+    res.status(500).json({ message: 'Failed to deregister token' });
+  }
+});
+
 module.exports = router;
 
 

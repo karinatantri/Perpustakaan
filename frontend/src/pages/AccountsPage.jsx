@@ -254,7 +254,7 @@ export default function AccountsPage() {
             📋 Daftar Akun
           </h3>
         </div>
-        <div className="table-wrapper">
+        <div className="table-wrapper accounts-table-desktop">
           <table className="table">
             <thead>
               <tr>
@@ -310,6 +310,49 @@ export default function AccountsPage() {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Card layout for mobile screens */}
+        <div className="accounts-cards-mobile">
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 24, color: '#64748b' }}>
+              Memuat...
+            </div>
+          ) : users.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 24, color: '#64748b' }}>
+              Belum ada akun
+            </div>
+          ) : (
+            users.map((u) => (
+              <div className="account-mobile-card" key={u.id}>
+                <div className="account-mobile-card-header">
+                  <span className="account-mobile-username">@{u.username}</span>
+                  {roleBadge(u.role)}
+                </div>
+                <div className="account-mobile-card-body">
+                  <p style={{ margin: 0 }}><strong>Nama:</strong> {u.name || '-'}</p>
+                  {u.role === 'teacher' && u.homeroomClass && (
+                    <p style={{ color: '#16a34a', marginTop: '4px', marginBottom: 0 }}>
+                      <strong>Wali Kelas:</strong> {u.homeroomClass}
+                    </p>
+                  )}
+                </div>
+                <div className="account-mobile-card-actions">
+                  <button type="button" className="btn-mobile-action" onClick={() => handleEdit(u)}>
+                    ✏️ Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-mobile-action danger"
+                    onClick={() => handleDelete(u.id)}
+                    disabled={deletingId === u.id}
+                  >
+                    {deletingId === u.id ? '⏳ ...' : '🗑️ Hapus'}
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>

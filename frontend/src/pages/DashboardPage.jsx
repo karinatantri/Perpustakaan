@@ -18,30 +18,17 @@ export default function DashboardPage() {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      const [booksRes, studentsRes, transactionsRes] = await Promise.all([
-        api.get('/books').catch(() => ({ data: [] })),
-        api.get('/students').catch(() => ({ data: [] })),
-        api.get('/transactions').catch(() => ({ data: [] }))
-      ]);
-
-      const books = booksRes.data || [];
-      const students = studentsRes.data || [];
-      const transactions = transactionsRes.data || [];
-
-      const activeLoans = transactions.filter((t) => t.status === 'ongoing').length;
-      const overdue = transactions.filter((t) => {
-        if (t.status !== 'ongoing' || !t.dueDate) return false;
-        return new Date(t.dueDate) < new Date();
-      }).length;
+      const res = await api.get('/transactions/stats');
+      const { totalBooks = 0, totalStudents = 0, activeLoans = 0, overdueBooks = 0, recentTransactions = [] } = res.data || {};
 
       setStats({
-        totalBooks: books.length,
-        totalStudents: students.length,
+        totalBooks,
+        totalStudents,
         activeLoans,
-        overdueBooks: overdue
+        overdueBooks
       });
 
-      setRecentTransactions(transactions.slice(0, 8));
+      setRecentTransactions(recentTransactions);
     } catch (err) {
       console.error(err);
     } finally {

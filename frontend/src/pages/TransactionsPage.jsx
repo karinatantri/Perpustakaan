@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api.js';
+import ReceiptModal from '../components/ReceiptModal.jsx';
 
 export default function TransactionsPage() {
   const userStr = localStorage.getItem('user');
@@ -15,34 +16,35 @@ export default function TransactionsPage() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState({});
+  const [receiptHtml, setReceiptHtml] = useState('');
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
 
-  const loadTransactions = async () => {
-    setLoading(true);
+  const loadTransactions = async (showLoadingIndicator = true) => {
+    if (showLoadingIndicator) setLoading(true);
     try {
-      const [txRes, studentsRes] = await Promise.all([
-        api.get('/transactions').catch(() => ({ data: [] })),
-        api.get('/students').catch(() => ({ data: [] }))
-      ]);
-
+      const txRes = await api.get('/transactions');
       const txData = txRes.data || [];
-      const studentsData = studentsRes.data || [];
-
-      const studentsMap = {};
-      studentsData.forEach((s) => {
-        studentsMap[s.id] = s;
-      });
-
-      setStudents(studentsMap);
       setTransactions(txData);
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (showLoadingIndicator) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadTransactions();
+    loadTransactions(true);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadTransactions(false);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   const formatDate = (dateStr) => {
@@ -69,12 +71,8 @@ export default function TransactionsPage() {
       const res = await api.get(endpoint, {
         responseType: 'text'
       });
-      const w = window.open('', '_blank');
-      if (w) {
-        w.document.open();
-        w.document.write(res.data);
-        w.document.close();
-      }
+      setReceiptHtml(res.data);
+      setShowReceiptModal(true);
     } catch (err) {
       console.error('Error opening receipt:', err);
       let errorMsg = 'Gagal membuka struk';
@@ -209,6 +207,11 @@ export default function TransactionsPage() {
           </tbody>
         </table>
       </div>
+      <ReceiptModal
+        isOpen={showReceiptModal}
+        onClose={() => setShowReceiptModal(false)}
+        htmlContent={receiptHtml}
+      />
     </div>
   );
 }
