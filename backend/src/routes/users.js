@@ -7,7 +7,7 @@ const router = express.Router();
 const db = getFirestore();
 const usersCol = db.collection('users');
 
-const allowedRoles = ['admin', 'officer', 'intern', 'teacher', 'student', 'principal'];
+const allowedRoles = ['admin', 'officer', 'teacher', 'student', 'principal'];
 
 // List users (admin only)
 router.get('/', auth(['admin']), async (req, res) => {
@@ -128,7 +128,7 @@ router.delete('/:id', auth(['admin']), async (req, res) => {
 });
 
 // Register FCM token
-router.post('/register-fcm-token', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'principal']), async (req, res) => {
+router.post('/register-fcm-token', auth(['admin', 'officer', 'teacher', 'student', 'principal']), async (req, res) => {
   try {
     const { token } = req.body;
     if (!token) {
@@ -152,7 +152,7 @@ router.post('/register-fcm-token', auth(['admin', 'officer', 'intern', 'teacher'
 });
 
 // Deregister FCM token
-router.post('/deregister-fcm-token', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'principal']), async (req, res) => {
+router.post('/deregister-fcm-token', auth(['admin', 'officer', 'teacher', 'student', 'principal']), async (req, res) => {
   try {
     const { token } = req.body;
     if (!token) {

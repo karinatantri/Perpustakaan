@@ -20,7 +20,6 @@ export default function MainLayout() {
   const isAdmin = userRole === 'admin';
   const isOfficer = userRole === 'officer';
   const isStaff = isAdmin || isOfficer;
-  const isIntern = userRole === 'intern';
   const isPrincipal = userRole === 'principal';
   
   const [notifications, setNotifications] = useState([]);
@@ -219,7 +218,7 @@ export default function MainLayout() {
             <span className="nav-icon">📊</span>
             <span>Dashboard</span>
           </NavLink>
-          {(isStaff || isIntern || isPrincipal || (userRole === 'teacher' && user.homeroomClass)) && (
+          {(isStaff || isPrincipal || (userRole === 'teacher' && user.homeroomClass)) && (
             <NavLink to="/app/students" className="nav-link">
               <span className="nav-icon">👥</span>
               <span>Data Siswa</span>
@@ -227,7 +226,7 @@ export default function MainLayout() {
           )}
           <NavLink to="/app/books" className="nav-link">
             <span className="nav-icon">📖</span>
-            <span>{isStaff || isIntern || isPrincipal ? 'Data Buku' : 'Katalog Buku'}</span>
+            <span>{isStaff || isPrincipal ? 'Data Buku' : 'Katalog Buku'}</span>
           </NavLink>
           {isStaff && (
             <NavLink to="/app/scan" className="nav-link">
@@ -249,7 +248,7 @@ export default function MainLayout() {
           )}
           <NavLink to="/app/transactions" className="nav-link">
             <span className="nav-icon">📋</span>
-            <span>{isStaff || isIntern || isPrincipal ? 'Transaksi' : userRole === 'teacher' ? 'Peminjaman Siswa' : 'Pinjaman Saya'}</span>
+            <span>{isStaff || isPrincipal ? 'Transaksi' : userRole === 'teacher' ? 'Peminjaman Siswa' : 'Pinjaman Saya'}</span>
           </NavLink>
           {isAdmin && (
             <NavLink to="/app/accounts" className="nav-link">
@@ -315,7 +314,7 @@ export default function MainLayout() {
           </NavLink>
           <NavLink to="/app/books" className="bottom-nav-link">
             <span className="bottom-nav-icon">📖</span>
-            <span className="bottom-nav-label">{isStaff || isIntern || isPrincipal ? 'Buku' : 'Katalog'}</span>
+            <span className="bottom-nav-label">{isStaff || isPrincipal ? 'Buku' : 'Katalog'}</span>
           </NavLink>
           {isStaff ? (
             <NavLink to="/app/scan" className="bottom-nav-link">
@@ -364,7 +363,7 @@ export default function MainLayout() {
             </div>
             
             <div className="mobile-sheet-nav">
-              {(isStaff || isIntern || isPrincipal || (userRole === 'teacher' && user.homeroomClass)) && (
+              {(isStaff || isPrincipal || (userRole === 'teacher' && user.homeroomClass)) && (
                 <NavLink 
                   to="/app/students" 
                   className="mobile-sheet-link"

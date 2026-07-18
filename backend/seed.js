@@ -13,7 +13,6 @@ const usersCol = db.collection('users');
 const seedUsers = [
   { username: 'admin', password: 'admin123', role: 'admin', name: 'Administrator Kepala' },
   { username: 'petugas', password: 'petugas123', role: 'officer', name: 'Petugas Pustakawan' },
-  { username: 'magang', password: 'magang123', role: 'intern', name: 'Siswa PKL/Magang' },
   { username: 'guru', password: 'guru123', role: 'teacher', name: 'Guru Pengajar' },
   { username: 'siswa', password: 'siswa123', role: 'student', name: 'Murid Siswa' },
   { username: 'kepsek', password: 'kepsek123', role: 'principal', name: 'Kepala Sekolah (H. Sunardi)' }

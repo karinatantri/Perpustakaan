@@ -12,7 +12,7 @@ const collection = db.collection('students');
 const upload = multer({ storage: multer.memoryStorage() });
 
 // List with optional filters
-router.get('/', auth(['admin', 'officer', 'intern', 'teacher', 'principal']), async (req, res) => {
+router.get('/', auth(['admin', 'officer', 'teacher', 'principal']), async (req, res) => {
   try {
     const user = req.user || {};
     let query = collection;
@@ -40,7 +40,7 @@ router.get('/', auth(['admin', 'officer', 'intern', 'teacher', 'principal']), as
 });
 
 // Autocomplete search
-router.get('/search', auth(['admin', 'officer', 'intern', 'teacher', 'principal']), async (req, res) => {
+router.get('/search', auth(['admin', 'officer', 'teacher', 'principal']), async (req, res) => {
   try {
     const { q } = req.query;
     if (!q) return res.json([]);
@@ -148,7 +148,7 @@ router.delete('/:id', auth(['admin']), async (req, res) => {
 });
 
 // Export students to Excel
-router.get('/export', auth(['admin', 'officer', 'intern', 'principal']), async (req, res) => {
+router.get('/export', auth(['admin', 'officer', 'principal']), async (req, res) => {
   try {
     const snap = await collection.get();
     const data = snap.docs.map((d, idx) => ({

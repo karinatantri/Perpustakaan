@@ -40,7 +40,6 @@ Aplikasi memiliki pembagian otorisasi yang sangat ketat baik di level navigasi F
 | :--- | :--- |
 | **Admin (`admin`)** | Pemegang kontrol penuh atas sistem. Dapat melakukan CRUD data siswa, buku, inventaris umum, registrasi akun petugas baru, memproses transaksi peminjaman/pengembalian, serta impor/ekspor data massal. |
 | **Officer (`officer`)** | Petugas / Pustakawan. Bertanggung jawab atas sirkulasi sehari-hari: melayani transaksi peminjaman, memproses pengembalian buku, menghitung denda, dan mengelola stok barang masuk/keluar di inventaris umum. |
-| **Intern (`intern`)** | Siswa Magang / PKL. Memiliki akses untuk memantau data siswa, katalog buku, dan melihat riwayat transaksi. Tidak diberikan izin untuk menambah/mengubah data transaksional vital. |
 | **Teacher (`teacher`)** | Guru Sekolah. Dapat memantau ketersediaan buku, inventarisasi barang umum, serta logs keluar-masuk barang demi kepentingan pembelajaran, tanpa akses mutasi data sirkulasi buku. |
 | **Student (`student`)** | Siswa Sekolah. Dapat masuk ke portal siswa untuk memantau buku apa saja yang sedang mereka pinjam, melihat histori pinjaman pribadi, meninjau tanggal jatuh tempo, dan menerima notifikasi push. |
 | **Principal (`principal`)** | Kepala Sekolah. Akses *Read-Only* ke seluruh dashboard laporan, statistik peminjaman, data inventaris, serta opsi ekspor laporan riwayat ke Excel untuk proses pengawasan. |

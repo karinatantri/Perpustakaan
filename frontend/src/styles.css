@@ -3122,10 +3122,6 @@ button.btn-secondary[onclick*="loadBooks"]:hover:not(:has(span))::after {
   color: #047857;
 }
 
-.badge-intern {
-  background: rgba(94, 234, 212, 0.25);
-  color: #0f766e;
-}
 
 /* Table improvements */
 .table tbody tr:hover {

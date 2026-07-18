@@ -4,7 +4,6 @@ import api from '../api';
 const roles = [
   { value: 'admin', label: 'Admin' },
   { value: 'officer', label: 'Karyawan/Petugas' },
-  { value: 'intern', label: 'Magang/PKL' },
   { value: 'teacher', label: 'Guru' },
   { value: 'student', label: 'Siswa' },
   { value: 'principal', label: 'Kepala Sekolah' }
@@ -143,7 +142,6 @@ export default function AccountsPage() {
     const map = {
       admin: { text: 'Admin', cls: 'badge badge-admin' },
       officer: { text: 'Karyawan/Petugas', cls: 'badge badge-officer' },
-      intern: { text: 'Magang/PKL', cls: 'badge badge-intern' },
       teacher: { text: 'Guru', cls: 'badge badge-teacher' },
       student: { text: 'Siswa', cls: 'badge badge-student' },
       principal: { text: 'Kepala Sekolah', cls: 'badge badge-principal' }
@@ -158,7 +156,7 @@ export default function AccountsPage() {
         <div>
           <h2 className="page-title">🧑‍💼 Manajemen Akun</h2>
           <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: '#64748b' }}>
-            Tambah, edit, atau hapus akun admin / petugas / magang
+            Tambah, edit, atau hapus akun admin / petugas / guru / siswa / kepala sekolah
           </p>
         </div>
         <div className="badge badge-soft" style={{ fontSize: '14px', padding: '8px 16px' }}>

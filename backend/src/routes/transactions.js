@@ -378,7 +378,7 @@ router.put('/:id/resolve-pending', auth(['admin', 'officer']), async (req, res) 
 });
 
 // Get transactions by student
-router.get('/', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'principal']), async (req, res) => {
+router.get('/', auth(['admin', 'officer', 'teacher', 'student', 'principal']), async (req, res) => {
   try {
     const { studentId: requestedStudentId } = req.query;
     const user = req.user || {};
@@ -439,7 +439,7 @@ router.get('/', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'princ
     } else if (requestedStudentId) {
       query = query.where('studentId', '==', requestedStudentId);
     } else {
-      // Admin, officer, principal, intern: limit to 50 recent transactions directly
+      // Admin, officer, principal: limit to 50 recent transactions directly
       query = query.orderBy('borrowDate', 'desc').limit(50);
       isLimited = true;
     }
@@ -612,7 +612,7 @@ router.get('/by-receipt/:receiptNumber', auth(['admin', 'officer']), async (req,
 });
 
 // Get dashboard stats and recent activity (highly optimized)
-router.get('/stats', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'principal']), async (req, res) => {
+router.get('/stats', auth(['admin', 'officer', 'teacher', 'student', 'principal']), async (req, res) => {
   try {
     const user = req.user || {};
     const today = new Date();
@@ -680,7 +680,7 @@ router.get('/stats', auth(['admin', 'officer', 'intern', 'teacher', 'student', '
       }
       recentSnap = filtered;
     } else {
-      // Admin/officer/principal/intern see recent globally
+      // Admin/officer/principal see recent globally
       const snap = await transactionsCol.orderBy('borrowDate', 'desc').limit(8).get();
       recentSnap = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     }
@@ -791,7 +791,7 @@ router.get('/:id/items', auth(['admin', 'officer']), async (req, res) => {
 });
 
 // Return receipt (for return transaction) - must be before /:id/receipt
-router.get('/:id/return-receipt', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'principal']), async (req, res) => {
+router.get('/:id/return-receipt', auth(['admin', 'officer', 'teacher', 'student', 'principal']), async (req, res) => {
   try {
     const { id } = req.params;
     const txDoc = await transactionsCol.doc(id).get();
@@ -1144,7 +1144,7 @@ router.get('/:id/return-receipt', auth(['admin', 'officer', 'intern', 'teacher',
 
 // Simple HTML receipt for a transaction (borrow receipt)
 // Note: For returned transactions, use /:id/return-receipt instead
-router.get('/:id/receipt', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'principal']), async (req, res) => {
+router.get('/:id/receipt', auth(['admin', 'officer', 'teacher', 'student', 'principal']), async (req, res) => {
   try {
     const { id } = req.params;
     const txDoc = await transactionsCol.doc(id).get();
@@ -1940,7 +1940,7 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'intern', 'teacher', 'stude
 
 
 // Export transactions to Excel
-router.get('/export', auth(['admin', 'officer', 'intern', 'principal']), async (req, res) => {
+router.get('/export', auth(['admin', 'officer', 'principal']), async (req, res) => {
   try {
     const snap = await transactionsCol.orderBy('borrowDate', 'desc').limit(1000).get();
     const transactions = snap.docs.map((d) => ({ id: d.id, ...d.data() }));

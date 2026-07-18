@@ -13,7 +13,7 @@ const itemsCol = db.collection('items');
 const upload = multer({ storage: multer.memoryStorage() });
 
 // List books
-router.get('/', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'principal']), async (req, res) => {
+router.get('/', auth(['admin', 'officer', 'teacher', 'student', 'principal']), async (req, res) => {
   try {
     const snap = await booksCol.get();
     const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -25,7 +25,7 @@ router.get('/', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'princ
 });
 
 // Search books by title (autocomplete)
-router.get('/search', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'principal']), async (req, res) => {
+router.get('/search', auth(['admin', 'officer', 'teacher', 'student', 'principal']), async (req, res) => {
   try {
     const { q } = req.query;
     if (!q) return res.json([]);
@@ -50,7 +50,7 @@ router.get('/search', auth(['admin', 'officer', 'intern', 'teacher', 'student', 
 
 // Get book by code (bookId or item uniqueCode)
 // Returns book info with available item if found
-router.get('/by-code/:code', auth(['admin', 'officer', 'intern', 'teacher', 'student', 'principal']), async (req, res) => {
+router.get('/by-code/:code', auth(['admin', 'officer', 'teacher', 'student', 'principal']), async (req, res) => {
   try {
     const { code } = req.params;
     if (!code) return res.status(400).json({ message: 'Code is required' });
@@ -233,7 +233,7 @@ router.post('/', auth(['admin', 'officer']), async (req, res) => {
 });
 
 // Export books to Excel (must be before /:id routes)
-router.get('/export', auth(['admin', 'officer', 'intern', 'principal']), async (req, res) => {
+router.get('/export', auth(['admin', 'officer', 'principal']), async (req, res) => {
   try {
     const snap = await booksCol.get();
     const data = snap.docs.map((d, idx) => ({

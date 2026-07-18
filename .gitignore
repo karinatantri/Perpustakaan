@@ -64,3 +64,5 @@ coverage/
 # Duplicate/Backup folders
 perpustakaan/
 
+# Android release build artifacts
+frontend/android/app/release/
