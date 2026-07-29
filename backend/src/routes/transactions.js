@@ -14,6 +14,17 @@ const studentsCol = db.collection('students');
 const booksCol = db.collection('books');
 const usersCol = db.collection('users');
 
+// HTML escaping to prevent XSS in receipt templates
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // Borrow items
 router.post('/borrow', auth(['admin', 'officer']), async (req, res) => {
   try {
@@ -64,11 +75,23 @@ router.post('/borrow', auth(['admin', 'officer']), async (req, res) => {
 
     let transactionId;
     let receiptNumber;
+
+    // Pre-fetch book docs before runTransaction to comply with Firestore read-before-write rule
+    const bookDocsMap = new Map();
+    for (const { data } of itemDocs) {
+      if (data && data.bookId && !bookDocsMap.has(data.bookId)) {
+        const bookSnap = await booksCol.doc(data.bookId).get();
+        if (bookSnap.exists) {
+          bookDocsMap.set(data.bookId, { ref: booksCol.doc(data.bookId), currentCopies: bookSnap.data().totalCopies || 0 });
+        }
+      }
+    }
     
     await db.runTransaction(async (t) => {
       const txRef = transactionsCol.doc();
       transactionId = txRef.id;
       receiptNumber = `TX-${Date.now()}`;
+
       t.set(txRef, {
         studentId,
         officerId: (req.user && req.user.id) || null,
@@ -87,7 +110,9 @@ router.post('/borrow', auth(['admin', 'officer']), async (req, res) => {
         updatedAt: now
       });
 
-      for (const { id: itemId } of itemDocs) {
+      const bookCopiesDelta = {};
+
+      for (const { id: itemId, data } of itemDocs) {
         const txItemRef = txItemsCol.doc();
         t.set(txItemRef, {
           transactionId: txRef.id,
@@ -101,6 +126,19 @@ router.post('/borrow', auth(['admin', 'officer']), async (req, res) => {
 
         const itemRef = itemsCol.doc(itemId);
         t.update(itemRef, { status: 'borrowed', updatedAt: now });
+
+        if (data && data.bookId) {
+          bookCopiesDelta[data.bookId] = (bookCopiesDelta[data.bookId] || 0) + 1;
+        }
+      }
+
+      // Update book totalCopies
+      for (const [bookId, delta] of Object.entries(bookCopiesDelta)) {
+        const bookInfo = bookDocsMap.get(bookId);
+        if (bookInfo) {
+          const newTotal = Math.max(0, bookInfo.currentCopies - delta);
+          t.update(bookInfo.ref, { totalCopies: newTotal, updatedAt: now });
+        }
       }
     });
 
@@ -119,8 +157,8 @@ router.post('/borrow', auth(['admin', 'officer']), async (req, res) => {
       barcode: receiptNumber
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Failed to create borrow transaction' });
+    console.error('Create borrow transaction error:', err);
+    res.status(500).json({ message: err.message || 'Failed to create borrow transaction' });
   }
 });
 
@@ -146,10 +184,46 @@ router.post('/return', auth(['admin', 'officer']), async (req, res) => {
 
     let hasProblem = false; // Check if any item is lost or damaged
     let totalFine = 0;
+    // 1. Pre-fetch transaction_items for this transaction
+    const txItemsSnap = await txItemsCol.where('transactionId', '==', transactionId).get();
+    const txItemsMap = new Map();
+    txItemsSnap.docs.forEach((d) => txItemsMap.set(d.data().itemId, d));
 
+    // 2. Pre-fetch itemDocs and bookDocs to comply with Firestore read-before-write rule
+    const itemDocsMap = new Map();
+    const bookDocsMap = new Map();
+
+    for (const itemReturn of items) {
+      const { itemId } = itemReturn;
+      const itemSnap = await itemsCol.doc(itemId).get();
+      if (itemSnap.exists) {
+        const itemData = itemSnap.data();
+        itemDocsMap.set(itemId, { ref: itemsCol.doc(itemId), data: itemData });
+
+        if (itemData.bookId && !bookDocsMap.has(itemData.bookId)) {
+          const bookSnap = await booksCol.doc(itemData.bookId).get();
+          if (bookSnap.exists) {
+            bookDocsMap.set(itemData.bookId, { ref: booksCol.doc(itemData.bookId), currentCopies: bookSnap.data().totalCopies || 0 });
+          }
+        }
+      }
+    }
+
+    // 3. Pre-check if all items in transaction are being returned
+    let allReturned = true;
+    for (const doc of txItemsSnap.docs) {
+      const txItem = doc.data();
+      if (!items.find((i) => i.itemId === txItem.itemId)) {
+        allReturned = false;
+        break;
+      }
+    }
+
+    // 4. Run Transaction with PURE WRITES (zero reads inside runTransaction)
     await db.runTransaction(async (t) => {
       const txRef = transactionsCol.doc(transactionId);
       const tx = txDoc.data();
+      const bookStockIncrements = {};
 
       for (const itemReturn of items) {
         const { itemId, condition = 'good', fine = 0, notes = '' } = itemReturn;
@@ -159,20 +233,13 @@ router.post('/return', auth(['admin', 'officer']), async (req, res) => {
           totalFine += Number(fine) || 0;
         }
         
-        // Find transaction_item
-        const txItemsSnap = await txItemsCol
-          .where('transactionId', '==', transactionId)
-          .where('itemId', '==', itemId)
-          .limit(1)
-          .get();
-
-        if (txItemsSnap.empty) {
+        const txItemDoc = txItemsMap.get(itemId);
+        if (!txItemDoc) {
           throw new Error(`Item ${itemId} not found in transaction`);
         }
 
-        const txItemDoc = txItemsSnap.docs[0];
-        const itemDoc = await itemsCol.doc(itemId).get();
-        if (!itemDoc.exists) {
+        const itemInfo = itemDocsMap.get(itemId);
+        if (!itemInfo) {
           throw new Error(`Item ${itemId} not found`);
         }
 
@@ -181,10 +248,15 @@ router.post('/return', auth(['admin', 'officer']), async (req, res) => {
         if (condition === 'lost') newStatus = 'lost';
         else if (condition === 'damaged') newStatus = 'damaged';
         
-        t.update(itemsCol.doc(itemId), { 
+        t.update(itemInfo.ref, { 
           status: newStatus, 
           updatedAt: now 
         });
+
+        // Track book stock increment if returned in good or damaged condition
+        if (itemInfo.data.bookId && (condition === 'good' || condition === 'damaged')) {
+          bookStockIncrements[itemInfo.data.bookId] = (bookStockIncrements[itemInfo.data.bookId] || 0) + 1;
+        }
 
         // Update transaction_item
         t.update(txItemsCol.doc(txItemDoc.id), {
@@ -197,17 +269,11 @@ router.post('/return', auth(['admin', 'officer']), async (req, res) => {
         });
       }
 
-      // Check if all items returned
-      const allTxItemsSnap = await txItemsCol
-        .where('transactionId', '==', transactionId)
-        .get();
-      
-      let allReturned = true;
-      for (const doc of allTxItemsSnap.docs) {
-        const txItem = doc.data();
-        if (!items.find((i) => i.itemId === txItem.itemId)) {
-          allReturned = false;
-          break;
+      // Apply book stock increments
+      for (const [bookId, count] of Object.entries(bookStockIncrements)) {
+        const bookInfo = bookDocsMap.get(bookId);
+        if (bookInfo) {
+          t.update(bookInfo.ref, { totalCopies: bookInfo.currentCopies + count, updatedAt: now });
         }
       }
 
@@ -230,10 +296,8 @@ router.post('/return', auth(['admin', 'officer']), async (req, res) => {
           updatedAt: now
         };
         if (officerName) {
-          updateData.officerName = officerName;
-        }
-        if (officerTitle) {
-          updateData.officerTitle = officerTitle;
+          updateData.returnOfficerName = officerName;
+          updateData.returnOfficerTitle = officerTitle || 'Petugas Perpustakaan';
         }
         t.update(txRef, updateData);
       }
@@ -309,6 +373,47 @@ router.post('/found-book', auth(['admin', 'officer']), async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to record found book' });
+  }
+});
+
+// Renew transaction (extend due date by 7 days)
+router.put('/:id/renew', auth(['admin', 'officer', 'student']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { days = 7 } = req.body;
+
+    const txDoc = await transactionsCol.doc(id).get();
+    if (!txDoc.exists) {
+      return res.status(404).json({ message: 'Transaksi tidak ditemukan' });
+    }
+
+    const tx = txDoc.data();
+    if (tx.status !== 'ongoing') {
+      return res.status(400).json({ message: 'Hanya peminjaman aktif yang dapat diperpanjang' });
+    }
+
+    if (tx.renewed) {
+      return res.status(400).json({ message: 'Peminjaman ini sudah pernah diperpanjang sebelumnya (maksimum 1x)' });
+    }
+
+    const currentDue = tx.dueDate ? new Date(tx.dueDate) : new Date();
+    const newDue = new Date(currentDue.getTime() + (Number(days) || 7) * 24 * 60 * 60 * 1000).toISOString();
+    const now = new Date().toISOString();
+
+    await transactionsCol.doc(id).update({
+      dueDate: newDue,
+      renewed: true,
+      renewedAt: now,
+      updatedAt: now
+    });
+
+    res.json({
+      message: `Peminjaman berhasil diperpanjang ${days} hari`,
+      newDueDate: newDue
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Gagal memperpanjang peminjaman' });
   }
 });
 
@@ -800,10 +905,13 @@ router.get('/:id/return-receipt', auth(['admin', 'officer', 'teacher', 'student'
     }
     const tx = txDoc.data();
 
-    const studentDoc = tx.studentId
-      ? await studentsCol.doc(tx.studentId).get()
-      : null;
-    const student = studentDoc && studentDoc.exists ? studentDoc.data() : null;
+    const studentDoc = tx.studentId ? await studentsCol.doc(tx.studentId).get() : null;
+    const studentData = studentDoc && studentDoc.exists ? studentDoc.data() : null;
+    const student = studentData ? {
+      name: escapeHtml(studentData.name || ''),
+      nis: escapeHtml(studentData.nis || ''),
+      class: escapeHtml(studentData.class || '')
+    } : null;
 
     const txItemsSnap = await txItemsCol.where('transactionId', '==', id).get();
     const items = [];
@@ -850,17 +958,17 @@ router.get('/:id/return-receipt', auth(['admin', 'officer', 'teacher', 'student'
       const fine = Number(txItem.fine) || 0;
       totalFine += fine;
       items.push({
-        code: itemData.uniqueCode || '',
-        title: bookTitle,
+        code: escapeHtml(itemData.uniqueCode || ''),
+        title: escapeHtml(bookTitle),
         condition: txItem.condition || 'good',
         fine: fine,
-        notes: txItem.notes || ''
+        notes: escapeHtml(txItem.notes || '')
       });
     }
 
     const borrowDate = tx.borrowDate || '';
     const returnDate = tx.returnDate || new Date().toISOString();
-    const receiptNumber = tx.receiptNumber || id;
+    const receiptNumber = escapeHtml(tx.receiptNumber || id);
     const paymentStatus = tx.paymentStatus || 'paid';
     const status = tx.status || 'completed';
 
@@ -889,6 +997,9 @@ router.get('/:id/return-receipt', auth(['admin', 'officer', 'teacher', 'student'
     if (!officerTitle) {
       officerTitle = 'Petugas Perpustakaan';
     }
+
+    officerName = escapeHtml(officerName);
+    officerTitle = escapeHtml(officerTitle);
 
     // Generate QR only
     let qrBase64 = '';

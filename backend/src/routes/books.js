@@ -4,6 +4,7 @@ const multer = require('multer');
 const { getFirestore } = require('../firebase');
 const { auth } = require('../middleware/auth');
 const { generateAndUploadQR } = require('../utils/qrGenerator');
+const { createSystemNotification } = require('../utils/notifications');
 
 const router = express.Router();
 const db = getFirestore();
@@ -12,11 +13,42 @@ const itemsCol = db.collection('items');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// List books
+// List books with real-time available stock
 router.get('/', auth(['admin', 'officer', 'teacher', 'student', 'principal']), async (req, res) => {
   try {
-    const snap = await booksCol.get();
-    const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const [booksSnap, itemsSnap] = await Promise.all([
+      booksCol.get(),
+      itemsCol.get()
+    ]);
+
+    const availableCounts = {};
+
+    itemsSnap.docs.forEach((d) => {
+      const item = d.data();
+      if (item.bookId && item.status === 'available') {
+        availableCounts[item.bookId] = (availableCounts[item.bookId] || 0) + 1;
+      }
+    });
+
+    const data = booksSnap.docs.map((d) => {
+      const bookData = d.data();
+      const bookId = d.id;
+
+      // Available stock is count of items with status 'available'
+      // Fallback to bookData.totalCopies if no items found
+      const available = availableCounts[bookId] !== undefined 
+        ? availableCounts[bookId] 
+        : (bookData.totalCopies || 0);
+
+      return {
+        id: bookId,
+        ...bookData,
+        stock: available,
+        availableCopies: available,
+        totalCopies: bookData.totalCopies || 0
+      };
+    });
+
     res.json(data);
   } catch (err) {
     console.error(err);
@@ -156,6 +188,15 @@ router.post('/', auth(['admin', 'officer']), async (req, res) => {
       });
       
       await batch.commit();
+
+      const actor = req.user?.name || req.user?.username || 'Petugas';
+      const timeStr = new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
+      await createSystemNotification({
+        title: '➕ Stok Buku Ditambahkan',
+        message: `Admin/Petugas (${actor}) menambah stok buku "${title.trim()}" sebanyak ${totalCopies || 0} eksemplar pada ${timeStr}. Total stok sekarang: ${newTotalCopies}.`,
+        type: 'book_add',
+        actorName: actor
+      });
       
       return res.json({
         message: 'Stock added to existing book',
@@ -219,6 +260,15 @@ router.post('/', auth(['admin', 'officer']), async (req, res) => {
       await batch.commit();
       index = end;
     }
+
+    const actor = req.user?.name || req.user?.username || 'Petugas';
+    const timeStr = new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
+    await createSystemNotification({
+      title: '📚 Data Buku Baru Ditambahkan',
+      message: `Admin/Petugas (${actor}) menambah buku baru "${title.trim()}" sebanyak ${totalCopies || 0} eksemplar pada ${timeStr}.`,
+      type: 'book_add',
+      actorName: actor
+    });
     
     const doc = await docRef.get();
     res.status(201).json({
@@ -227,7 +277,7 @@ router.post('/', auth(['admin', 'officer']), async (req, res) => {
       itemsGenerated: createdItemIds.length
     });
   } catch (err) {
-    console.error(err);
+    console.error('Failed to create book:', err);
     res.status(500).json({ message: 'Failed to create book' });
   }
 });
@@ -446,6 +496,13 @@ router.delete('/:id', auth(['admin']), async (req, res) => {
     batch.delete(booksCol.doc(id));
     
     await batch.commit();
+
+    await createSystemNotification({
+      title: '🗑️ Data Buku Dihapus',
+      message: `Buku "${bookDoc.data().title}" telah dihapus dari katalog oleh ${req.user?.name || req.user?.username || 'Petugas'}.`,
+      type: 'book_delete',
+      actorName: req.user?.name || req.user?.username || 'Petugas'
+    });
     
     res.json({ 
       message: 'Book and all related items deleted successfully',
@@ -568,6 +625,13 @@ router.post('/:id/add-stock', auth(['admin', 'officer']), async (req, res) => {
     });
     
     await batch.commit();
+
+    await createSystemNotification({
+      title: '➕ Stok Buku Ditambahkan',
+      message: `Stok buku "${bookDoc.data().title}" ditambah ${quantity} eksemplar oleh ${req.user?.name || req.user?.username || 'Petugas'}.`,
+      type: 'book_add',
+      actorName: req.user?.name || req.user?.username || 'Petugas'
+    });
     
     res.json({
       message: 'Stock added',
@@ -630,6 +694,16 @@ router.post('/:id/reduce-stock', auth(['admin', 'officer']), async (req, res) =>
     });
     
     await batch.commit();
+
+    const actor = req.user?.name || req.user?.username || 'Petugas';
+    const timeStr = new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
+    const reasonText = reason ? ` (Alasan: ${reason})` : '';
+    await createSystemNotification({
+      title: '➖ Stok Buku Dikurangi',
+      message: `Admin/Petugas (${actor}) mengurangi stok buku "${bookDoc.data().title}" sebanyak ${quantity} eksemplar pada ${timeStr}${reasonText}. Total stok sekarang: ${currentCopies - quantity}.`,
+      type: 'book_reduce',
+      actorName: actor
+    });
     
     res.json({
       message: 'Stock reduced',

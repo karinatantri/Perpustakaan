@@ -11,6 +11,7 @@ import ReturnPage from './pages/ReturnPage.jsx';
 import LandingPage from './pages/LandingPage.jsx';
 import AccountsPage from './pages/AccountsPage.jsx';
 import ScanQrPage from './pages/ScanQrPage.jsx';
+import InventoriesPage from './pages/InventoriesPage.jsx';
 
 function RequireAuth({ children }) {
   const token = localStorage.getItem('token');
@@ -215,6 +216,7 @@ export default function App() {
           <Route path="transactions" element={<TransactionsPage />} />
           <Route path="borrow" element={<BorrowPage />} />
           <Route path="return" element={<ReturnPage />} />
+          <Route path="inventories" element={<InventoriesPage />} />
           <Route path="accounts" element={<AccountsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

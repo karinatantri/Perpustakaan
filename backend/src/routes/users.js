@@ -76,8 +76,12 @@ router.put('/:id', auth(['admin']), async (req, res) => {
     const { id } = req.params;
     const { username, password, role, name, homeroomClass } = req.body || {};
 
+    const userDoc = await usersCol.doc(id).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ message: 'Pengguna tidak ditemukan' });
+    }
+
     const updates = {};
-    const targetRole = role || 'officer'; // Fallback to check role changes
     
     if (username) {
       // ensure unique
@@ -115,12 +119,23 @@ router.put('/:id', auth(['admin']), async (req, res) => {
   }
 });
 
-// Delete user
+// Delete user (with FCM token cleanup)
 router.delete('/:id', auth(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
-    await usersCol.doc(id).delete();
-    res.json({ id });
+    const userDoc = await usersCol.doc(id).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ message: 'Pengguna tidak ditemukan' });
+    }
+
+    // Clean up FCM tokens associated with this user
+    const fcmSnap = await db.collection('fcm_tokens').where('userId', '==', id).get();
+    const batch = db.batch();
+    fcmSnap.docs.forEach(doc => batch.delete(doc.ref));
+    batch.delete(usersCol.doc(id));
+    await batch.commit();
+
+    res.json({ id, message: 'Pengguna berhasil dihapus' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Gagal menghapus pengguna' });

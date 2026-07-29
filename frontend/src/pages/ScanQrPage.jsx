@@ -48,6 +48,19 @@ export default function ScanQrPage() {
             done: true
           });
           setMessage('ℹ️ Transaksi ini sudah selesai dikembalikan.');
+        } else if (code.toUpperCase().startsWith('INV-')) {
+          // Detect Inventory Barang Item QR
+          const invId = code.replace(/^INV-/i, '');
+          const res = await api.get(`/inventories/${encodeURIComponent(invId)}/qr`);
+          const inv = res.data;
+          if (!inv || !inv.name) {
+            throw new Error('Data barang inventaris tidak ditemukan.');
+          }
+          setPanel({
+            type: 'inventory',
+            item: inv
+          });
+          setMessage(`✅ Barang Inventaris Terdeteksi: ${inv.name}`);
         } else {
           const res = await api.get(
             `/books/by-code/${encodeURIComponent(code)}`
@@ -120,9 +133,7 @@ export default function ScanQrPage() {
         <div>
           <h2 className="page-title">📷 Scan QR</h2>
           <p className="page-subtitle">
-            <strong>QR buku</strong> → langsung ke <strong>Peminjaman</strong>.{' '}
-            <strong>QR struk (TX-…)</strong> yang masih aktif → ke{' '}
-            <strong>Pengembalian</strong>. Struk yang sudah selesai ditampilkan di sini.
+            <strong>QR Buku</strong> → Peminjaman | <strong>QR Barang (INV-…)</strong> → Detail Inventaris | <strong>QR Struk (TX-…)</strong> → Pengembalian
           </p>
         </div>
       </div>
@@ -156,6 +167,56 @@ export default function ScanQrPage() {
           </button>
         </div>
       </div>
+
+      {/* Panel Hasil Scan Barang Inventaris */}
+      {panel && panel.type === 'inventory' && panel.item && (
+        <div className="form-card" style={{ marginBottom: 20, borderLeft: '4px solid #059669' }}>
+          <div className="form-card-header">
+            <span className="form-card-icon">📦</span>
+            <h3 className="form-card-title">Barang Inventaris Terdeteksi</h3>
+          </div>
+          <div className="form-card-body">
+            <h4 style={{ margin: '0 0 4px', fontSize: 20, color: '#0f172a' }}>{panel.item.name}</h4>
+            <p style={{ margin: '0 0 12px', color: '#64748b', fontSize: 14 }}>
+              Kode: <strong>{panel.item.itemCode || `INV-${panel.item.id}`}</strong>
+              {panel.item.category ? ` • Kategori: ${panel.item.category}` : ''}
+            </p>
+
+            <div style={{ display: 'flex', gap: 16, background: '#f8fafc', padding: 14, borderRadius: 10, border: '1px solid #e2e8f0', marginBottom: 16 }}>
+              <div>
+                <span style={{ fontSize: 12, color: '#64748b' }}>Stok Fisik Saat Ini:</span>
+                <div style={{ fontSize: 20, fontWeight: 800, color: (Number(panel.item.stock) || 0) <= (Number(panel.item.minStock) || 0) ? '#dc2626' : '#059669' }}>
+                  {panel.item.stock} {panel.item.unit || 'pcs'}
+                </div>
+              </div>
+              <div>
+                <span style={{ fontSize: 12, color: '#64748b' }}>Batas Minimal Stok:</span>
+                <div style={{ fontSize: 20, fontWeight: 700, color: '#475569' }}>
+                  {panel.item.minStock || 0} {panel.item.unit || 'pcs'}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ background: '#059669', borderColor: '#059669' }}
+                onClick={() => navigate('/app/books?tab=inventories')}
+              >
+                📦 Buka di Katalog Barang
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setPanel(null)}
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {panel && panel.type === 'receipt' && panel.tx && (
         <div className="form-card" style={{ marginBottom: 20 }}>

@@ -1,9 +1,15 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useSearchParams } from 'react-router-dom';
 import api from '../api.js';
 import { downloadOrShareImage } from '../utils/downloadHelper.js';
+import InventoriesPage from './InventoriesPage.jsx';
 
 export default function BooksPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab') === 'inventories' ? 'inventories' : 'books';
+  const [activeTab, setActiveTab] = useState(initialTab);
+
   const userStr = localStorage.getItem('user');
   let userRole = 'student';
   if (userStr) {
@@ -12,6 +18,11 @@ export default function BooksPage() {
     } catch (_) {}
   }
   const isStaff = userRole === 'admin' || userRole === 'officer';
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setSearchParams({ tab });
+  };
 
   const [books, setBooks] = useState([]);
   const [search, setSearch] = useState('');
@@ -43,19 +54,31 @@ export default function BooksPage() {
   });
   const [addStockData, setAddStockData] = useState({ quantity: 1, entryDate: '', location: '' });
   const [reduceStockData, setReduceStockData] = useState({ quantity: 1, reason: '', notes: '' });
+  const [showAddBarangForm, setShowAddBarangForm] = useState(false);
+  const [barangFormData, setBarangFormData] = useState({
+    name: '',
+    category: '',
+    unit: 'pcs',
+    stock: 1,
+    minStock: 0
+  });
+  const [selectedBookCategory, setSelectedBookCategory] = useState('');
   const [message, setMessage] = useState('');
   const fileInputRef = useRef(null);
 
+  const bookCategories = Array.from(new Set(books.map((b) => b.category).filter(Boolean)));
+
   const filteredBooks = books.filter((b) => {
-    if (!search) return true;
     const q = search.toLowerCase();
-    return (
+    const matchSearch =
+      !search ||
       (b.title || '').toLowerCase().includes(q) ||
       (b.author || '').toLowerCase().includes(q) ||
       (b.category || '').toLowerCase().includes(q) ||
       (b.location || '').toLowerCase().includes(q) ||
-      (b.year || '').toString().includes(q)
-    );
+      (b.year || '').toString().includes(q);
+    const matchCat = !selectedBookCategory || b.category === selectedBookCategory;
+    return matchSearch && matchCat;
   });
 
   const loadBooks = async () => {
@@ -86,6 +109,24 @@ export default function BooksPage() {
       loadBooks();
     } catch (err) {
       setMessage('❌ Gagal menambahkan buku');
+      console.error(err);
+    }
+  };
+
+  const handleAddBarangSubmit = async (e) => {
+    e.preventDefault();
+    setMessage('');
+    try {
+      await api.post('/inventories', {
+        ...barangFormData,
+        stock: Number(barangFormData.stock) || 0,
+        minStock: Number(barangFormData.minStock) || 0
+      });
+      setMessage('✅ Barang inventaris berhasil ditambahkan!');
+      setShowAddBarangForm(false);
+      setBarangFormData({ name: '', category: '', unit: 'pcs', stock: 1, minStock: 0 });
+    } catch (err) {
+      setMessage('❌ Gagal menambahkan barang inventaris');
       console.error(err);
     }
   };
@@ -240,34 +281,133 @@ export default function BooksPage() {
 
   return (
     <div>
-      <div className="page-header">
-        <h2 className="page-title">📚 {isStaff ? 'Data Buku' : 'Katalog Buku'}</h2>
-        <div className="page-actions">
-          {isStaff && (
-            <>
-              <button type="button" className="btn-secondary" onClick={handleExport}>
-                📥 Export Excel
-              </button>
-              <label className="btn-secondary" style={{ cursor: 'pointer', margin: 0 }}>
-                📤 Import Excel
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".xlsx,.xls"
-                  onChange={handleImport}
-                  style={{ display: 'none' }}
-                />
-              </label>
-              <button type="button" className="btn-primary" onClick={() => setShowForm(!showForm)}>
-                {showForm ? 'Batal' : '+ Tambah Buku'}
-              </button>
-            </>
-          )}
-          <button type="button" className="btn-secondary" onClick={loadBooks}>
-            🔄 Refresh
-          </button>
-        </div>
+      <div className="page-header" style={{ marginBottom: 12 }}>
+        <h2 className="page-title">📖 {isStaff ? 'Data Buku & Barang' : 'Katalog Buku & Barang'}</h2>
       </div>
+
+      {/* Tab Switcher Panel */}
+      <div className="tab-switcher" style={{ display: 'flex', gap: 10, marginBottom: 20, borderBottom: '2px solid #cbd5e1', paddingBottom: 4 }}>
+        <button
+          type="button"
+          onClick={() => handleTabChange('books')}
+          style={{
+            padding: '10px 22px',
+            borderRadius: '8px 8px 0 0',
+            border: 'none',
+            background: activeTab === 'books' ? '#1d4ed8' : '#f1f5f9',
+            color: activeTab === 'books' ? '#ffffff' : '#475569',
+            fontWeight: 700,
+            fontSize: '14px',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            boxShadow: activeTab === 'books' ? '0 4px 12px rgba(29,78,216,0.25)' : 'none'
+          }}
+        >
+          📖 Katalog Buku ({books.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => handleTabChange('inventories')}
+          style={{
+            padding: '10px 22px',
+            borderRadius: '8px 8px 0 0',
+            border: 'none',
+            background: activeTab === 'inventories' ? '#059669' : '#f1f5f9',
+            color: activeTab === 'inventories' ? '#ffffff' : '#475569',
+            fontWeight: 700,
+            fontSize: '14px',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            boxShadow: activeTab === 'inventories' ? '0 4px 12px rgba(5,150,105,0.25)' : 'none'
+          }}
+        >
+          📦 Inventaris Barang
+        </button>
+      </div>
+
+      {activeTab === 'inventories' ? (
+        <InventoriesPage />
+      ) : (
+        <>
+          <div
+            className="page-actions-row"
+            style={{
+              display: 'flex',
+              justify: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 12,
+              marginBottom: 20,
+              background: '#ffffff',
+              padding: '12px 16px',
+              borderRadius: 12,
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Aksi Katalog:</span>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ padding: '8px 14px', fontSize: 13, borderRadius: 8 }}
+                onClick={loadBooks}
+              >
+                🔄 Refresh Data
+              </button>
+            </div>
+
+            {isStaff && (
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ padding: '8px 14px', fontSize: 13, borderRadius: 8 }}
+                  onClick={handleExport}
+                >
+                  📥 Export Excel
+                </button>
+                <label
+                  className="btn-secondary"
+                  style={{ cursor: 'pointer', margin: 0, padding: '8px 14px', fontSize: 13, borderRadius: 8 }}
+                >
+                  📤 Import Excel
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={handleImport}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+
+                <div style={{ width: 1, height: 24, background: '#cbd5e1', margin: '0 2px' }}></div>
+
+                <button
+                  type="button"
+                  className="btn-primary"
+                  style={{ padding: '8px 16px', fontSize: 13, borderRadius: 8, background: '#1d4ed8', borderColor: '#1d4ed8' }}
+                  onClick={() => {
+                    setShowForm(!showForm);
+                    if (!showForm) setShowAddBarangForm(false);
+                  }}
+                >
+                  {showForm ? '✕ Batal' : '📚 + Tambah Buku'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  style={{ padding: '8px 16px', fontSize: 13, borderRadius: 8, background: '#059669', borderColor: '#059669' }}
+                  onClick={() => {
+                    setShowAddBarangForm(!showAddBarangForm);
+                    if (!showAddBarangForm) setShowForm(false);
+                  }}
+                >
+                  {showAddBarangForm ? '✕ Batal' : '📦 + Tambah Barang'}
+                </button>
+              </div>
+            )}
+          </div>
 
       {message && (
         <div className={`form-message ${message.includes('✅') ? 'form-message-success' : message.includes('⚠️') ? 'form-message-warning' : 'form-message-error'}`}>
@@ -354,107 +494,259 @@ export default function BooksPage() {
         </div>
       )}
 
-      <div className="search-box" style={{ marginBottom: '20px', maxWidth: '400px' }}>
-        <input
-          className="form-input"
-          placeholder="🔍 Cari buku (Judul / Penulis / Kategori / Lokasi)..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      {showAddBarangForm && (
+        <div className="form-card" style={{ borderLeft: '4px solid #059669' }}>
+          <h3 className="form-card-title">📦 Tambah Barang Inventaris Baru</h3>
+          <form onSubmit={handleAddBarangSubmit}>
+            <div className="form-grid">
+              <label className="form-label">
+                Nama Barang *
+                <input
+                  className="form-input"
+                  required
+                  value={barangFormData.name}
+                  onChange={(e) => setBarangFormData({ ...barangFormData, name: e.target.value })}
+                  placeholder="Contoh: Spidol Boardmarker, Meja Baca, Laptop"
+                />
+              </label>
+
+              <label className="form-label">
+                Kategori
+                <input
+                  className="form-input"
+                  value={barangFormData.category}
+                  onChange={(e) => setBarangFormData({ ...barangFormData, category: e.target.value })}
+                  placeholder="Contoh: Alat Tulis, Kebersihan, Meubel, Elektronik"
+                />
+              </label>
+
+              <label className="form-label">
+                Stok Awal *
+                <input
+                  type="number"
+                  min="0"
+                  className="form-input"
+                  required
+                  value={barangFormData.stock}
+                  onChange={(e) => setBarangFormData({ ...barangFormData, stock: e.target.value })}
+                />
+              </label>
+
+              <label className="form-label">
+                Satuan
+                <input
+                  className="form-input"
+                  value={barangFormData.unit}
+                  onChange={(e) => setBarangFormData({ ...barangFormData, unit: e.target.value })}
+                  placeholder="pcs, box, pack, unit"
+                />
+              </label>
+
+              <label className="form-label">
+                Batas Minimal Stok (Alert)
+                <input
+                  type="number"
+                  min="0"
+                  className="form-input"
+                  value={barangFormData.minStock}
+                  onChange={(e) => setBarangFormData({ ...barangFormData, minStock: e.target.value })}
+                  placeholder="Batas minimal peringatan stok menipis"
+                />
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+              <button type="submit" className="btn-primary" style={{ background: '#059669', borderColor: '#059669' }}>
+                💾 Simpan Barang
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => setShowAddBarangForm(false)}>
+                Batal
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Summary Stat Cards for Books */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
+        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14 }}>
+          <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>📚 Total Judul Buku</div>
+          <div style={{ fontSize: 22, color: '#0f172a', fontWeight: 800, marginTop: 4 }}>{books.length}</div>
+        </div>
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: 14 }}>
+          <div style={{ fontSize: 12, color: '#1e40af', fontWeight: 600 }}>📦 Total Eksemplar Stok</div>
+          <div style={{ fontSize: 22, color: '#1d4ed8', fontWeight: 800, marginTop: 4 }}>
+            {books.reduce((acc, curr) => acc + (Number(curr.totalCopies) || 0), 0)}
+          </div>
+        </div>
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: 14 }}>
+          <div style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>🏷️ Kategori Buku</div>
+          <div style={{ fontSize: 22, color: '#16a34a', fontWeight: 800, marginTop: 4 }}>{bookCategories.length}</div>
+        </div>
+        <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 10, padding: 14 }}>
+          <div style={{ fontSize: 12, color: '#6b21a8', fontWeight: 600 }}>📍 Lokasi Terdaftar</div>
+          <div style={{ fontSize: 22, color: '#7e22ce', fontWeight: 800, marginTop: 4 }}>
+            {Array.from(new Set(books.map((b) => b.location).filter(Boolean))).length}
+          </div>
+        </div>
       </div>
 
-      <div className="table-container">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>No</th>
-              <th>Judul</th>
-              <th>Penulis</th>
-              <th>Kategori</th>
-              <th>Tahun</th>
-              <th>Stok</th>
-              <th>Lokasi</th>
-              {isStaff && <th>Aksi</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {filteredBooks.map((b, idx) => (
-              <tr key={b.id}>
-                <td>{idx + 1}</td>
-                <td><strong>{b.title || '-'}</strong></td>
-                <td>{b.author || '-'}</td>
-                <td><span className="badge">{b.category || '-'}</span></td>
-                <td>{b.year || '-'}</td>
-                <td><strong style={{ fontSize: '16px' }}>{b.totalCopies || 0}</strong></td>
-                <td>{b.location || '-'}</td>
-                {isStaff && (
-                  <td>
-                    <div className="table-actions">
-                      <button
-                        type="button"
-                        className="btn-icon btn-qr"
-                        onClick={() => openQrModal(b)}
-                        title="Lihat QR Codes"
-                        disabled={!b.totalCopies || b.totalCopies === 0}
-                      >
-                        📷
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-icon btn-edit"
-                        onClick={() => openEditModal(b)}
-                        title="Edit"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-icon btn-add"
-                        onClick={() => openAddStockModal(b)}
-                        title="Tambah Stok"
-                      >
-                        ➕
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-icon btn-remove"
-                        onClick={() => openReduceStockModal(b)}
-                        title="Kurangi Stok"
-                        disabled={!b.totalCopies || b.totalCopies === 0}
-                      >
-                        ➖
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-icon btn-delete"
-                        onClick={() => openDeleteModal(b)}
-                        title="Hapus"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </td>
-                )}
-              </tr>
-            ))}
-            {filteredBooks.length === 0 && (
-              <tr>
-                <td colSpan={isStaff ? 8 : 7} style={{ textAlign: 'center', padding: '40px' }}>
-                  <div className="empty-state">
-                    <div className="empty-icon">📚</div>
-                    <p>{search ? 'Tidak ada data buku yang sesuai dengan pencarian' : 'Belum ada data buku'}</p>
-                    {isStaff && !search && (
-                      <button type="button" className="btn-primary" onClick={() => setShowForm(true)}>
-                        Tambah Buku Pertama
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      {/* Filter & Search Bar for Books */}
+      <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16, marginBottom: 20, boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ flex: 1, minWidth: 220, position: 'relative' }}>
+            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: '#94a3b8' }}>🔍</span>
+            <input
+              type="text"
+              placeholder="Cari judul buku, penulis, rak, atau penerbit..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="form-input"
+              style={{ paddingLeft: 36, width: '100%' }}
+            />
+          </div>
+
+          <div style={{ width: 200 }}>
+            <select
+              value={selectedBookCategory}
+              onChange={(e) => setSelectedBookCategory(e.target.value)}
+              className="form-input"
+              style={{ width: '100%' }}
+            >
+              <option value="">📁 Semua Kategori ({bookCategories.length})</option>
+              {bookCategories.map((cat) => (
+                <option key={cat} value={cat}>📁 {cat}</option>
+              ))}
+            </select>
+          </div>
+
+          {(search || selectedBookCategory) && (
+            <button
+              type="button"
+              onClick={() => { setSearch(''); setSelectedBookCategory(''); }}
+              className="btn-secondary"
+              style={{ padding: '8px 14px', fontSize: 13 }}
+            >
+              ✕ Reset Filter
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Table Data Buku */}
+      {filteredBooks.length === 0 ? (
+        <div style={{ padding: 50, textAlign: 'center', background: 'white', border: '1px solid #e2e8f0', borderRadius: 12 }}>
+          <div style={{ fontSize: 36, marginBottom: 8 }}>📚</div>
+          <p style={{ color: '#64748b', fontWeight: 600, fontSize: 15 }}>
+            {search || selectedBookCategory ? 'Tidak ada buku yang cocok dengan pencarian.' : 'Belum ada data buku.'}
+          </p>
+          {isStaff && !search && (
+            <button type="button" className="btn-primary" style={{ marginTop: 12 }} onClick={() => setShowForm(true)}>
+              + Tambah Buku Pertama
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="table-responsive" style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 12, overflowX: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+          <table className="table" style={{ margin: 0, minWidth: 720 }}>
+            <thead>
+              <tr style={{ background: '#f8fafc' }}>
+                <th style={{ width: 50, textAlign: 'center' }}>No</th>
+                <th>Judul Buku</th>
+                <th>Penulis</th>
+                <th>Kategori</th>
+                <th style={{ textAlign: 'center' }}>Tahun</th>
+                <th style={{ textAlign: 'center' }}>Stok</th>
+                <th>Lokasi Rak</th>
+                {isStaff && <th style={{ textAlign: 'center', width: 220 }}>Aksi</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredBooks.map((b, idx) => (
+                <tr key={b.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ textAlign: 'center', color: '#64748b', fontWeight: 600 }}>{idx + 1}</td>
+                  <td style={{ fontWeight: 700, color: '#0f172a' }}>{b.title || '-'}</td>
+                  <td style={{ color: '#475569' }}>{b.author || '-'}</td>
+                  <td>
+                    {b.category ? (
+                      <span style={{ padding: '3px 8px', background: '#eff6ff', color: '#1d4ed8', borderRadius: 6, fontSize: 12, fontWeight: 600 }}>
+                        📁 {b.category}
+                      </span>
+                    ) : (
+                      <span style={{ color: '#94a3b8' }}>-</span>
+                    )}
+                  </td>
+                  <td style={{ textAlign: 'center', color: '#64748b', fontSize: 13 }}>{b.year || '-'}</td>
+                  <td style={{ textAlign: 'center' }}>
+                    <span style={{ fontWeight: 800, fontSize: 15, color: (b.stock === 0) ? '#dc2626' : '#059669' }}>
+                      {b.stock !== undefined ? b.stock : (b.totalCopies || 0)}
+                    </span>
+                    {b.totalCopies !== undefined && (
+                      <div style={{ fontSize: 11, color: '#64748b' }}>
+                        dari {b.totalCopies} total
+                      </div>
+                    )}
+                  </td>
+                  <td style={{ color: '#475569', fontSize: 13 }}>{b.location || '-'}</td>
+                  {isStaff && (
+                    <td style={{ textAlign: 'center' }}>
+                      <div style={{ display: 'flex', gap: 4, justifyContent: 'center', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="btn-sm btn-secondary"
+                          style={{ background: '#eff6ff', color: '#1d4ed8', borderColor: '#bfdbfe', fontWeight: 700, padding: '4px 8px' }}
+                          onClick={() => openQrModal(b)}
+                          title="Lihat QR Codes"
+                          disabled={!b.totalCopies || b.totalCopies === 0}
+                        >
+                          📷 QR
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-sm btn-outline"
+                          style={{ padding: '4px 8px' }}
+                          onClick={() => openEditModal(b)}
+                          title="Edit Buku"
+                        >
+                          ✏️ Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-sm btn-secondary"
+                          style={{ background: '#f0fdf4', color: '#166534', borderColor: '#bbf7d0', fontWeight: 700, padding: '4px 8px' }}
+                          onClick={() => openAddStockModal(b)}
+                          title="Tambah Stok"
+                        >
+                          ➕
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-sm btn-secondary"
+                          style={{ background: '#fff7ed', color: '#c2410c', borderColor: '#ffedd5', fontWeight: 700, padding: '4px 8px' }}
+                          onClick={() => openReduceStockModal(b)}
+                          title="Kurangi Stok"
+                          disabled={!b.totalCopies || b.totalCopies === 0}
+                        >
+                          ➖
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-sm btn-danger"
+                          style={{ padding: '4px 8px' }}
+                          onClick={() => openDeleteModal(b)}
+                          title="Hapus Buku"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Modal Tambah Stok */}
       {showAddStockModal && selectedBook && (
@@ -776,6 +1068,8 @@ export default function BooksPage() {
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

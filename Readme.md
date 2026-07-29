@@ -1,237 +1,257 @@
-# 📚 Perpustakaan & Inventaris Sekolah (YP Tunas Karya)
+# 📚 Sistem Informasi Perpustakaan & Inventaris Sekolah (YP Tunas Karya)
 
-Sistem Informasi Perpustakaan & Inventaris Barang Sekolah adalah aplikasi full-stack terintegrasi yang dirancang untuk mengelola operasional perpustakaan sekolah (buku, katalog, sirkulasi peminjaman/pengembalian, denda keterlambatan) serta inventarisasi aset barang umum sekolah (alat tulis, barang elektronik, dsb.).
+Sistem Informasi Perpustakaan & Inventaris Barang Sekolah adalah aplikasi *full-stack* terintegrasi yang dirancang khusus untuk mengelola operasional perpustakaan sekolah (katalog buku, pemisahan eksemplar fisik, sirkulasi peminjaman/pengembalian, kalkulator denda otomatis, generator Surat Peringatan keterlambatan) serta inventarisasi aset barang umum sekolah (alat tulis, barang habis pakai, media pembelajaran, dan perangkat elektronik).
 
-Aplikasi ini menggunakan arsitektur **decoupled (client-server)** dan dikembangkan dengan kapabilitas **Multi-platform**. Pengguna dapat mengakses sistem ini melalui aplikasi Web responsif, Progressive Web App (PWA), maupun aplikasi Mobile Android Native (menggunakan Capacitor).
+Aplikasi dibangun menggunakan arsitektur **Decoupled (Client-Server)** dan berkemampuan **Multi-Platform**. Sistem dapat diakses melalui aplikasi Web responsif, Progressive Web App (PWA), maupun aplikasi Mobile Android Native (menggunakan Ionic Capacitor).
+
+---
+
+## 🏗️ Arsitektur Sistem (System Architecture)
+
+Aplikasi ini mengadopsi pola arsitektur *Client-Server RESTful API* terpisah (*Decoupled Monorepo*), di mana frontend mengelola antarmuka pengguna interaktif dan backend menangani logika bisnis, otentikasi, serta integrasi layanan *Cloud*.
+
+```mermaid
+flowchart TD
+    subgraph Clients["📱 Client Layer (Frontend)"]
+        WebBrowser["🌐 Web App (Vite + React.js)"]
+        PWA["📲 PWA (Mobile Browser)"]
+        APK["📱 Android Native (Capacitor)"]
+    end
+
+    subgraph CDN["🚀 Deployment & Hosting Infrastructure"]
+        Vercel["Vercel (Fullstack Serverless API & Static Web)"]
+        Netlify["Netlify (Static Web Hosting & Functions)"]
+        Railway["Railway (Node.js Express Backend Service)"]
+    end
+
+    subgraph Server["⚡ Backend Engine (Node.js & Express REST API)"]
+        API["Express.js Core Engine"]
+        AuthMiddleware["JWT Auth & Role-Based Authorization"]
+        Routes["API Controllers (Books, Items, Transactions, Students, Inventories, Notifications, Users)"]
+    end
+
+    subgraph Services["☁️ Cloud Services & Persistence"]
+        Firestore["🔥 Google Firebase Firestore (Cloud NoSQL Database)"]
+        Cloudinary["☁️ Cloudinary Storage (Book Covers & Student QR Codes)"]
+        FCM["🔔 Firebase Cloud Messaging (Push Notifications)"]
+    end
+
+    Clients --> CDN
+    CDN --> API
+    API --> AuthMiddleware
+    AuthMiddleware --> Routes
+    Routes --> Firestore
+    Routes --> Cloudinary
+    Routes --> FCM
+```
+
+---
+
+## ⭐ Fitur Utama & Keunggulan Sistem
+
+### 📚 1. Penggabungan Data Buku & Barang Inventaris (Single Page Tab Panel)
+- Integrated Management Page (`BooksPage.jsx`) yang menyatukan katalog buku dan inventaris barang sekolah ke dalam satu antarmuka terpadu berbasis tab panel.
+- Pengelolaan eksemplar fisik buku secara terpisah dengan kode unik (`uniqueCode`) dan QR Code khusus.
+- Generator dan detektor QR Code pintar untuk eksemplar buku (`BOOK-...`) dan barang inventaris (`INV-...`).
+
+### 📦 2. Sinkronisasi Stok Real-Time & Audit Notifikasi
+- Perhitungan stok otomatis (`availableCopies` & `totalCopies`) secara real-time yang ter-update saat peminjaman maupun pengembalian buku.
+- **Pusat Notifikasi Audit Stok:** Setiap penambahan, pengurangan, maupun penghapusan stok buku atau barang mencatat nama petugas, jumlah, item target, dan stempel waktu (*timestamp*) bahasa Indonesia ke dalam database Firestore dan ditampilkan pada 🔔 Notifications Drawer.
+
+### 📋 3. Sirkulasi Peminjaman & Pengembalian Buku Interaktif
+- **Multi-Search Loan Return (`ReturnPage.jsx`):** Tab *Scan Kode Peminjaman* dilengkapi dropdown pencarian transaksi aktif (`ongoing` / `partially_returned`) berbasis Kode TX, Nama Siswa, atau NIS.
+- **Deteksi Pemindai QR Code:** Pemindai kamera otomatis membedakan antara QR Struk (`TX-...`), QR Kartu Siswa (`SISWA-...`), QR Buku (`BOOK-...`), dan QR Barang (`INV-...`).
+- Kuota transaksi peminjaman fleksibel tanpa batasan kaku (*unlimited active loan support*).
+
+### 📜 4. Highlight Visual Keterlambatan & Generator Surat Peringatan
+- **Highlight Transaksi Terlambat:** Baris transaksi yang melewati tanggal jatuh tempo secara otomatis di-highlight dengan warna latar merah soft (`#fff5f5`) dan badge `⚠️ TERLAMBAT (X Hari)`.
+- **Official Warning Letter Generator (`WarningLetterModal.jsx`):** Tombol **`⚠️ Surat Peringatan`** memicu dokumen resmi **SURAT PERINGATAN KETERLAMBATAN PENGEMBALIAN BUKU** lengkap dengan kop resmi Yayasan Perguruan Tunas Karya, nomor surat resmi, kalkulasi denda (Rp 1.000/hari), dan kolom tanda tangan siap cetak A4/PDF.
+
+### 🧑‍💼 5. Redesain Manajemen Akun & Hak Akses (`AccountsPage.jsx`)
+- Tampilan modern dengan 4 Stat Cards ringkasan peranan pengguna.
+- Pencarian username (`@username`) & nama lengkap serta filter role terpadu.
+- Opsi tampilkan/sembunyikan kata sandi (`👁️/🙈`).
+- Badge avatar peranan berwarna (Admin: Merah, Petugas: Hijau Emerald, Guru: Biru, Siswa: Hijau, Kepsek: Amber).
+- Penugasan Wali Kelas otomatis bagi pengguna ber-role Guru.
 
 ---
 
 ## 🛠️ Bahasa Pemrograman & Framework (Stack Teknologi)
 
-Aplikasi dibangun menggunakan teknologi modern untuk menjamin kecepatan, performa, dan kemudahan pengembangan:
-
 ### 1. Frontend (Client-Side)
 * **Bahasa Pemrograman:** JavaScript (ES6+ / JSX)
 * **Framework Utama:** React.js v18
-* **Build System & Dev Server:** Vite
-* **Routing:** React Router Dom v6 untuk navigasi client-side SPA.
-* **HTTP Client:** Axios (dilengkapi Request Interceptor untuk menyematkan token JWT secara otomatis pada header `Authorization` dan Response Interceptor untuk pembersihan sesi/auto-logout otomatis jika server mengembalikan status 401 Unauthorized).
-* **QR & Barcode Scanner:** Integrasi pustaka `html5-qrcode` & `jsqr` guna mengakses kamera perangkat secara langsung untuk proses pemindaian kartu siswa dan barcode buku.
-* **Integrasi Native Android:** Capacitor JS untuk pembungkusan (bridging) aset web menjadi aplikasi native Android, lengkap dengan splash screen dan push notifications.
-* **Desain & UI:** Vanilla CSS Premium ([frontend/src/styles.css](file:///c:/Users/fadli/Downloads/perpustakaan-main/perpustakaan-main/frontend/src/styles.css)) dengan sistem grid, tata letak modern (glassmorphism/sleek dashboard), mikro-animasi pada komponen tombol, card statis, serta dialog modal interaktif.
+* **Build Tool & Dev Server:** Vite
+* **Routing:** React Router Dom v6 untuk navigasi Single Page Application (SPA).
+* **HTTP Client:** Axios (Dilengkapi *Request Interceptor* untuk JWT bearer token otomatis dan *Response Interceptor* untuk penanganan error 401 / auto-logout).
+* **QR & Barcode Scanner:** Pustaka `html5-qrcode` & `jsqr` untuk mengakses kamera perangkat guna memindai QR Code kartu siswa, barcode buku, dan barang.
+* **Integrasi Native Android:** Capacitor JS (`@capacitor/android`, `@capacitor/core`, `@capacitor/push-notifications`, `@capacitor/splash-screen`) untuk pembungkusan (*bridging*) aset web menjadi aplikasi native Android.
+* **Desain & Styling:** Vanilla CSS Premium dengan Emerald Green Palette (`#065f46`), Glassmorphism UI, Responsive Grid Layout, dan Micro-Animations.
 
 ### 2. Backend (Server-Side)
 * **Runtime Environment:** Node.js
 * **Framework API:** Express.js (REST API Server)
 * **Database:** Firestore (Google Firebase Cloud NoSQL Database via SDK Firebase Admin)
-* **Media & Cloud Storage:** Cloudinary (digunakan untuk mengunggah dan menyimpan gambar cover buku serta file gambar QR Code siswa/eksemplar yang digenerate oleh server).
-* **Keamanan & Autentikasi:** JSON Web Token (JWT) untuk sesi login yang aman dan `bcryptjs` untuk enkripsi (hashing) kata sandi pengguna di database.
-* **Generator Barcode & QR Code:** Pustaka `bwip-js` & `qrcode` untuk membuat gambar kode respons cepat (QR Code) eksemplar buku maupun kartu siswa dengan tingkat koreksi kesalahan (Error Correction Level M).
-* **Manajemen Dokumen & Excel:** `xlsx` (SheetJS) untuk mengekstrak data dari lembar Excel saat proses import massal serta menyusun dokumen Excel dinamis saat ekspor laporan.
-* **Serverless Adapter:** `serverless-http` yang membungkus aplikasi Express agar dapat dieksekusi sebagai Serverless Functions di platform Vercel atau Netlify.
+* **Cloud Storage:** Cloudinary (Penyimpanan gambar cover buku dan file QR Code siswa/barang).
+* **Keamanan & Otentikasi:** JSON Web Token (JWT) dan Hashing Kata Sandi menggunakan `bcryptjs`.
+* **Generator Barcode & QR Code:** Pustaka `bwip-js` & `qrcode` untuk membuat gambar kode respons cepat (QR Code) eksemplar buku, barang, maupun kartu siswa.
+* **Manajemen Excel:** Pustaka `xlsx` (SheetJS) untuk parser import masal dan generator ekspor dokumen Excel `.xlsx`.
+* **Serverless Adapter:** `serverless-http` untuk kompatibilitas deployment serverless Vercel & Netlify.
 
 ---
 
 ## 🔑 Level Pengguna & Hak Akses (Role-Based Access Control)
 
-Aplikasi memiliki pembagian otorisasi yang sangat ketat baik di level navigasi Frontend maupun verifikasi endpoint API Backend menggunakan middleware ([backend/src/middleware/auth.js](file:///c:/Users/fadli/Downloads/perpustakaan-main/perpustakaan-main/backend/src/middleware/auth.js)):
+Aplikasi memiliki pembagian otorisasi yang ketat baik pada navigasi Frontend maupun verifikasi endpoint API Backend menggunakan middleware otentikasi ([backend/src/middleware/auth.js](file:///d:/perpustakaan-main/perpustakaan-main/backend/src/middleware/auth.js)):
 
 | Role | Deskripsi & Hak Akses |
 | :--- | :--- |
-| **Admin (`admin`)** | Pemegang kontrol penuh atas sistem. Dapat melakukan CRUD data siswa, buku, inventaris umum, registrasi akun petugas baru, memproses transaksi peminjaman/pengembalian, serta impor/ekspor data massal. |
-| **Officer (`officer`)** | Petugas / Pustakawan. Bertanggung jawab atas sirkulasi sehari-hari: melayani transaksi peminjaman, memproses pengembalian buku, menghitung denda, dan mengelola stok barang masuk/keluar di inventaris umum. |
-| **Teacher (`teacher`)** | Guru Sekolah. Dapat memantau ketersediaan buku, inventarisasi barang umum, serta logs keluar-masuk barang demi kepentingan pembelajaran, tanpa akses mutasi data sirkulasi buku. |
-| **Student (`student`)** | Siswa Sekolah. Dapat masuk ke portal siswa untuk memantau buku apa saja yang sedang mereka pinjam, melihat histori pinjaman pribadi, meninjau tanggal jatuh tempo, dan menerima notifikasi push. |
-| **Principal (`principal`)** | Kepala Sekolah. Akses *Read-Only* ke seluruh dashboard laporan, statistik peminjaman, data inventaris, serta opsi ekspor laporan riwayat ke Excel untuk proses pengawasan. |
+| **Admin (`admin`)** | Akses penuh atas sistem. Melakukan CRUD data siswa, katalog buku, eksemplar, inventaris umum, registrasi akun petugas/guru/siswa, sirkulasi transaksi, serta impor/ekspor data massal. |
+| **Officer (`officer`)** | Petugas / Pustakawan. Melayani transaksi peminjaman, memproses pengembalian buku, menghitung denda, mencetak Surat Peringatan, dan mengelola mutasi stok masuk/keluar inventaris umum. |
+| **Teacher (`teacher`)** | Guru Sekolah / Wali Kelas. Memantau ketersediaan buku katalog, data siswa wali, dan daftar inventaris barang umum demi kepentingan KBM (*Read-Only* sirkulasi). |
+| **Student (`student`)** | Siswa Sekolah. Mengakses portal siswa untuk melihat riwayat peminjaman pribadi, tanggal jatuh tempo, QR Code kartu siswa, dan menerima *push notification*. |
+| **Principal (`principal`)** | Kepala Sekolah. Akses *Read-Only* ke seluruh dashboard statistik, laporan transaksi, inventaris barang, serta opsi ekspor laporan riwayat ke Excel. |
 
 ---
 
-## 🚀 Fitur Utama & Cara Kerja Sistem
+## 📊 Pemodelan & Diagram Sistem (System Modeling & Diagrams)
 
-### A. Fitur Manajemen Perpustakaan (Library Management)
-1. **Pemisahan Buku & Eksemplar Fisik (Copies)**
-   * Sistem membedakan data katalog utama buku ([backend/src/routes/books.js](file:///c:/Users/fadli/Downloads/perpustakaan-main/perpustakaan-main/backend/src/routes/books.js)) dengan unit fisik buku (eksemplar / items) ([backend/src/routes/items.js](file:///c:/Users/fadli/Downloads/perpustakaan-main/perpustakaan-main/backend/src/routes/items.js)).
-   * Satu judul buku bisa memiliki banyak eksemplar fisik yang masing-masing memiliki kode unik buatan sistem (contoh: `BK-001-1`, `BK-001-2`, `BK-001-3`).
-   * Status setiap eksemplar dipantau secara real-time: `available` (tersedia), `borrowed` (dipinjam), `lost` (hilang), atau `damaged` (rusak).
-2. **Kartu Anggota Digital & QR Code Siswa**
-   * Pendaftaran siswa baru ([backend/src/routes/students.js](file:///c:/Users/fadli/Downloads/perpustakaan-main/perpustakaan-main/backend/src/routes/students.js)) otomatis memicu generator QR Code berbasis NIS (Nomor Induk Siswa).
-   * QR Code diunggah langsung ke Cloudinary dan disematkan pada data siswa. Petugas dapat mengunduh serta mencetak kartu anggota fisik berisi QR Code tersebut.
-3. **Alur Peminjaman Instan (Borrow Workflow)**
-   * Siswa menunjukkan Kartu Anggota Fisik/Digital. Petugas memindai QR Code kartu tersebut via kamera laptop/HP.
-   * Petugas memindai barcode/QR Code yang tertempel pada eksemplar fisik buku.
-   * Transaksi disimpan ke Firestore dalam satu kesatuan batch terproteksi (Firestore Transaction) untuk menjaga konsistensi stok dan status eksemplar.
-   * Sistem mengirimkan **Push Notification** real-time ke akun siswa menggunakan Firebase Cloud Messaging (FCM) berisi informasi tanggal peminjaman dan batas waktu kembali.
-   * Petugas dapat mengunduh atau mencetak struk peminjaman digital.
-4. **Alur Pengembalian & Kalkulator Denda (Return Workflow)**
-   * Petugas mencari transaksi peminjaman aktif dengan memindai struk transaksi atau mencari nama/NIS siswa ([backend/src/routes/transactions.js](file:///c:/Users/fadli/Downloads/perpustakaan-main/perpustakaan-main/backend/src/routes/transactions.js)).
-   * Petugas memeriksa kondisi fisik buku saat diserahkan (`good`, `damaged`, `lost`).
-   * Sistem secara otomatis menghitung durasi keterlambatan berdasarkan tanggal jatuh tempo dan mengalikan dengan tarif denda yang berlaku.
-   * Pembayaran denda tercatat secara dinamis. Jika denda belum lunas, transaksi diubah ke status `has_problem_pending` agar mudah dilacak di kemudian hari.
-   * Eksemplar buku otomatis dialihkan kembali ke status `available` (atau `damaged`/`lost` tergantung kondisi akhir).
-   * Siswa menerima push notification konfirmasi pengembalian sukses beserta rincian denda (jika ada).
+### 1. DFD (Data Flow Diagram)
 
-### B. Fitur Manajemen Inventaris Barang Umum (General Assets)
-1. **Katalog Barang Non-Buku**
-   * Mengelola barang habis pakai (kertas, pulpen, tinta printer) maupun aset sekolah (proyektor, kabel converter) pada database terpisah ([backend/src/routes/inventories.js](file:///c:/Users/fadli/Downloads/perpustakaan-main/perpustakaan-main/backend/src/routes/inventories.js)).
-2. **Histori Mutasi Stok (Stock Logs)**
-   * Mencatat setiap aktivitas penambahan barang masuk (restock) dan barang keluar (dipakai/rusak), lengkap dengan pencatatan nama petugas penanggung jawab dan tujuan pengeluaran.
-3. **Threshold Stok Minimum (Stock Alert)**
-   * Menampilkan tanda peringatan warna merah pada baris barang jika tingkat persediaan saat ini menyentuh atau berada di bawah batas stok minimum (`minStock`).
+#### A. DFD Level 0 (Context Diagram)
+Context Diagram menggambarkan aliran data global antara entitas luar (Aktor) dengan Sistem Informasi Perpustakaan & Inventaris.
 
-### C. Fitur Pendukung Lanjutan
-* **Smart PWA Installer Dialog:** Jika diakses via browser HP, aplikasi menampilkan popup dialog instalasi terpandu (khusus safari iOS maupun chrome Android) agar pengguna dapat menyematkan aplikasi ke Home Screen layaknya aplikasi native.
-* **Impor Data Massal (Excel Import):** Mempersingkat waktu konfigurasi awal dengan menyediakan template pengunggahan data Buku dan data Siswa secara masif dari file Excel `.xlsx`.
-* **Ekspor Laporan Fleksibel:** Seluruh daftar data buku, siswa, maupun log riwayat transaksi dapat diekspor menjadi dokumen Excel yang rapi hanya dalam sekali klik.
-* **Pencarian Komprehensif:** Menyediakan kolom filter multi-kategori dan pencarian teks cepat yang berjalan di sisi klien (Vite React) untuk efisiensi loading data.
+```mermaid
+flowchart LR
+    Admin(("👤 Admin"))
+    Petugas(("👤 Officer / Petugas"))
+    Guru(("👤 Teacher / Guru"))
+    Siswa(("👤 Student / Siswa"))
+    Kepsek(("👤 Principal / Kepsek"))
 
----
+    subgraph System["📚 Sistem Informasi Perpustakaan & Inventaris YP Tunas Karya"]
+        Core["Main Application Engine"]
+    end
 
-## 📂 Struktur Project
+    Admin -- "Input Data Buku, Barang, Siswa, & Akun User" --> Core
+    Core -- "Laporan Transaksi, Data Akun, & QR Code" --> Admin
 
-Aplikasi ini dikelola dalam format monorepo terstruktur sebagai berikut:
+    Petugas -- "Input Peminjaman, Pengembalian, & Mutasi Stok" --> Core
+    Core -- "Struk Transaksi, Surat Peringatan, & Notifikasi Audit" --> Petugas
 
-```bash
-perpustakaan/
-├── backend/                  # REST API Server (Node.js & Express)
-│   ├── api/                  # Entrypoint tambahan untuk deployment serverless
-│   ├── src/
-│   │   ├── middleware/       # Middleware Express (Autentikasi JWT & Otorisasi Role)
-│   │   │   └── auth.js
-│   │   ├── routes/           # Endpoint API per modul bisnis
-│   │   │   ├── auth.js       # Autentikasi Login Admin/Staff
-│   │   │   ├── books.js      # CRUD Katalog & Manajemen Stok Buku
-│   │   │   ├── inventories.js# CRUD Aset Barang Sekolah & Logs
-│   │   │   ├── items.js      # Manajemen Ketersediaan Eksemplar
-│   │   │   ├── students.js   # CRUD & Ekspor-Impor Data Siswa
-│   │   │   ├── transactions.js# Logika Inti Sirkulasi Peminjaman & Pengembalian
-│   │   │   └── users.js      # CRUD Pengguna Sistem & Token FCM
-│   │   ├── utils/            # Helper Utilities
-│   │   │   ├── notifications.js# Logika Pengiriman FCM Push Notification
-│   │   │   └── qrGenerator.js  # Generator QR Code & Integrasi Cloudinary Upload
-│   │   ├── app.js            # Express Initialization & Global Error Handling
-│   │   ├── cloudinary.js     # Konfigurasi Koneksi Cloudinary SDK
-│   │   ├── firebase.js       # Inisialisasi Firebase Admin SDK & Koneksi Firestore
-│   │   └── server.js         # Port Listener untuk local development (Port 4000)
-│   ├── .env.example          # Template Environment Variables Backend
-│   ├── package.json          # Library & Dependencies Backend
-│   ├── seed.js               # Script Seeding Akun Pengguna Default (Role-based)
-│   └── seed_data.js          # Script Seeding Data Buku, Siswa, dan Transaksi Dummy
-│
-├── frontend/                 # Aplikasi Antarmuka (Vite, React & Capacitor)
-│   ├── android/              # Folder Project Android Native (Capacitor)
-│   ├── public/               # Static assets & Manifest PWA
-│   ├── src/
-│   │   ├── components/       # Komponen UI global (MainLayout, QrScanner, ReceiptModal)
-│   │   ├── pages/            # Komponen halaman utama (Dashboard, Sirkulasi, dsb.)
-│   │   ├── utils/            # Helper utilitas frontend
-│   │   ├── App.jsx           # Routing client-side & logic PWA installation prompt
-│   │   ├── api.js            # Axios client setup, baseUrl resolver, & token interceptor
-│   │   ├── main.jsx          # Entry point render React DOM
-│   │   └── styles.css        # File CSS kustom (Desain UI responsif & layout modern)
-│   ├── capacitor.config.json # Konfigurasi Aplikasi Android Native Capacitor
-│   ├── vite.config.mjs       # Konfigurasi build Vite, https certs, & API proxy server
-│   └── package.json          # Library & Dependencies Frontend
-│
-├── vercel.json               # Konfigurasi Deploy Monorepo ke Vercel (API & Static Routing)
-├── railway.json              # Konfigurasi Build & Run Backend ke Railway
-└── netlify.toml              # Konfigurasi Build & Redirect Routing ke Netlify
+    Guru -- "Request Data Buku & Barang Kelas" --> Core
+    Core -- "Katalog Buku & Inventaris Barang" --> Guru
+
+    Siswa -- "Scan Card QR & Request Riwayat Pinjaman" --> Core
+    Core -- "Kartu Digital, Riwayat Pinjam, & Push Notification" --> Siswa
+
+    Kepsek -- "Request Laporan Operasional & Statistik" --> Core
+    Core -- "Dashboard Analytics & File Ekspor Excel" --> Kepsek
 ```
 
 ---
 
-## 🚀 Panduan Memulai & Pengembangan Lokal
+## 🌐 Rincian Endpoint API Backend (API Reference)
 
-Ikuti langkah-langkah di bawah ini untuk menjalankan project di komputer lokal Anda:
+### 1. Otentikasi & Akun (`/api/auth` & `/api/users`)
+* `POST /api/auth/login`: Autentikasi pengguna, mengembalikan JWT Token & User Profile.
+* `GET /api/users`: Mengambil daftar akun pengguna terdaftar (*Auth: Admin*).
+* `POST /api/users`: Membuat akun pengguna baru (*Auth: Admin*).
+* `PUT /api/users/:id`: Memperbarui username, nama, role, wali kelas, atau password (*Auth: Admin*).
+* `DELETE /api/users/:id`: Menghapus akun pengguna (*Auth: Admin*).
 
-### Prerequisites (Prasyarat)
-Pastikan Anda sudah menginstal:
-* [Node.js](https://nodejs.org/) (versi 16 atau lebih tinggi)
-* Akun Firebase (dengan database **Firestore** aktif)
-* Akun Cloudinary (untuk penyimpanan gambar/QR Code)
+### 2. Data Buku & Eksemplar (`/api/books` & `/api/items`)
+* `GET /api/books`: Mengambil seluruh katalog buku lengkap dengan hitungan stok real-time (`stock` & `totalCopies`).
+* `POST /api/books`: Menambah buku baru atau menambah stok pada buku yang sudah ada (*Auth: Admin, Officer*).
+* `POST /api/books/:id/add-stock`: Menambah stok eksemplar fisik buku (*Auth: Admin, Officer*).
+* `POST /api/books/:id/reduce-stock`: Mengurangi stok eksemplar buku (*Auth: Admin, Officer*).
+* `DELETE /api/books/:id`: Menghapus buku beserta seluruh eksemplar fisiknya (*Auth: Admin, Officer*).
+* `GET /api/books/:id/qr`: Mengambil atau membuat QR Code eksemplar buku.
+
+### 3. Sirkulasi Transaksi (`/api/transactions`)
+* `GET /api/transactions`: Mengambil seluruh transaksi peminjaman/pengembalian.
+* `POST /api/transactions/borrow`: Membuat transaksi peminjaman baru & mengurangi stok buku (*Auth: Admin, Officer*).
+* `POST /api/transactions/return`: Memproses pengembalian buku, menghitung denda, & mengembalikan stok buku (*Auth: Admin, Officer*).
+* `GET /api/transactions/by-receipt/:code`: Mengambil detail transaksi berdasarkan kode struk `TX-...`.
+* `GET /api/transactions/:id/warning-letter`: Mengambil data resmi Surat Peringatan Keterlambatan.
+
+### 4. Inventaris Barang Sekolah (`/api/inventories`)
+* `GET /api/inventories`: Mengambil daftar barang inventaris sekolah.
+* `POST /api/inventories`: Menambah barang inventaris baru (*Auth: Admin, Officer*).
+* `POST /api/inventories/:id/logs`: Mencatat mutasi stok masuk (`in`) atau keluar (`out`) (*Auth: Admin, Officer*).
+* `DELETE /api/inventories/:id`: Menghapus barang dari inventaris (*Auth: Admin, Officer*).
+
+### 5. Audit Notifikasi (`/api/notifications`)
+* `GET /api/notifications`: Mengambil 50 notifikasi audit sistem terbaru (penambahan, pengurangan, dan penghapusan stok real-time).
 
 ---
 
-### Langkah 1: Kloning & Pengaturan Environment Variables
+## ⚡ Panduan Memulai (Getting Started Guide)
 
-1. Duplikat berkas `.env.example` di dalam folder `backend/` menjadi `.env`:
-   ```bash
-   cp backend/.env.example backend/.env
-   ```
-2. Isi nilai variabel di dalam `backend/.env` sesuai dengan kredensial Firebase dan Cloudinary Anda:
-   * **Firebase:** Masukkan `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, dan `FIREBASE_PRIVATE_KEY` (pastikan tanda baris baru `\n` pada private key tertulis dengan benar).
-   * **Cloudinary:** Isi `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, dan `CLOUDINARY_API_SECRET`.
-   * **JWT Secret:** Tentukan string acak panjang untuk `JWT_SECRET`.
-3. Buat berkas `.env` di dalam folder `frontend/` jika ingin mengubah alamat API default, atau biarkan kosong agar otomatis menggunakan proxy development:
-   ```env
-   VITE_API_BASE_URL=http://localhost:4000/api
-   ```
+### Langkah 1: Kebutuhan Sistem (Prerequisites)
+- **Node.js:** v18.0.0 atau lebih baru.
+- **npm:** v9.0.0 atau lebih baru.
+- **Google Firebase:** Proyek Firebase dengan Cloud Firestore aktif.
 
 ---
 
-### Langkah 2: Instalasi Dependencies & Seeding Database
+### Langkah 2: Konfigurasi Environment Variable (`.env`)
 
-Jalankan terminal dan instal pustaka di kedua direktori:
+#### Backend Environment (`backend/.env`):
+```env
+PORT=4000
+JWT_SECRET=your_super_secret_jwt_key_here
+FIREBASE_PROJECT_ID=your-firebase-project-id
+FIREBASE_CLIENT_EMAIL=your-firebase-client-email
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+CLOUDINARY_CLOUD_NAME=your_cloudinary_name
+CLOUDINARY_API_KEY=your_cloudinary_api_key
+CLOUDINARY_API_SECRET=your_cloudinary_api_secret
+```
 
-1. **Instalasi Backend & Seeding Akun:**
+#### Frontend Environment (`frontend/.env`):
+```env
+VITE_API_URL=http://localhost:4000/api
+```
+
+---
+
+### Langkah 3: Menjalankan Server Pengembangan Lokal
+
+1. **Instal & Jalankan Server Backend (Port 4000):**
    ```bash
    cd backend
    npm install
-   
-   # Seed akun dasar sistem (admin, petugas, guru, siswa, kepsek)
-   node seed.js
-   
-   # (Opsional) Seed data dummy siswa, buku, serta riwayat transaksi peminjaman
-   node seed_data.js
-   ```
-2. **Instalasi Frontend:**
-   ```bash
-   cd ../frontend
-   npm install
+   node seed.js        # Seeding akun awal (admin, petugas, guru, siswa, kepsek)
+   npm start           # Jalankan server backend
    ```
 
----
-
-### Langkah 3: Menjalankan Server Pengembangan
-
-Untuk menjalankan backend dan frontend secara bersamaan pada lingkungan lokal:
-
-1. **Jalankan Backend (Port 4000):**
-   ```bash
-   cd backend
-   npm run dev
-   ```
-2. **Jalankan Frontend (Port 5173):**
-   Buka jendela terminal baru, lalu jalankan:
+2. **Instal & Jalankan Server Frontend Vite (Port 5173):**
+   Buka jendela terminal baru:
    ```bash
    cd frontend
-   npm run dev
+   npm install
+   npm run dev         # Jalankan server frontend Vite
    ```
+
 3. Akses aplikasi melalui browser di tautan `http://localhost:5173`.
-4. Masuk menggunakan akun bawaan hasil *seeding*:
-   * **Admin:** Username: `admin` | Password: `admin123`
-   * **Petugas:** Username: `petugas` | Password: `petugas123`
-   * **Kepala Sekolah:** Username: `kepsek` | Password: `kepsek123`
 
-## 📱 Membangun & Mengunduh Aplikasi Android Native (Capacitor)
+---
 
-### 📥 Unduh Langsung Aplikasi Android (.APK)
-Anda dapat langsung mengunduh dan memasang aplikasi Android siap pakai untuk sistem perpustakaan ini melalui tautan berikut:
-* **[Download base.apk](file:///c:/Users/fadli/Downloads/perpustakaan-main/perpustakaan-main/base.apk)** (Atau klik tautan relatif GitHub: [base.apk](./base.apk))
+## 📱 Membangun Aplikasi Android Native (Capacitor)
 
-### 🛠️ Membangun APK Sendiri dari Source Code
-Jika Anda ingin mengompilasi tampilan frontend menjadi berkas `.apk` Android secara mandiri:
+Untuk mengompilasi tampilan web frontend menjadi proyek & file `.apk` Android Native:
 
-1. Pastikan Anda telah menginstal Android Studio dan SDK terkait.
-2. Build aset web frontend terlebih dahulu:
+1. Build aset web frontend terlebih dahulu:
    ```bash
    cd frontend
    npm run build
    ```
-3. Sinkronisasikan aset kompilasi web ke folder project Android:
+2. Sinkronisasikan hasil build web ke proyek Android Native:
    ```bash
    npx cap sync android
    ```
-4. Buka project Android di Android Studio untuk menjalankan emulator atau mengekspor APK:
+3. (Opsional) Buka proyek Android di Android Studio:
    ```bash
    npx cap open android
    ```
@@ -240,8 +260,14 @@ Jika Anda ingin mengompilasi tampilan frontend menjadi berkas `.apk` Android sec
 
 ## 🌍 Konfigurasi Deployment Produksi
 
-Project ini telah siap dideploy ke berbagai platform hosting modern menggunakan konfigurasi monorepo bawaan:
+Aplikasi siap dideploy secara otomatis ke platform hosting cloud:
 
-* **Vercel:** Menangani deployment full-stack secara otomatis menggunakan berkas [vercel.json](file:///c:/Users/fadli/Downloads/perpustakaan-main/perpustakaan-main/vercel.json) di root directory. Endpoint API diarahkan ke backend node, sedangkan routing non-aset diarahkan ke `index.html` frontend.
-* **Netlify:** Mengompilasi dan meng-host frontend statis dari folder `frontend/dist`, serta merutekan request `/api/*` ke serverless function Express di folder `netlify/functions/` berdasarkan berkas [netlify.toml](file:///c:/Users/fadli/Downloads/perpustakaan-main/perpustakaan-main/netlify.toml).
-* **Railway:** Membaca berkas [railway.json](file:///c:/Users/fadli/Downloads/perpustakaan-main/perpustakaan-main/railway.json) untuk langsung menginstal dependensi backend dan menyalakan server Express Node.js secara persisten sebagai API backend utama.
+* **Vercel:** Menggunakan berkas [vercel.json](file:///d:/perpustakaan-main/perpustakaan-main/vercel.json) di root directory.
+* **Netlify:** Menggunakan berkas [netlify.toml](file:///d:/perpustakaan-main/perpustakaan-main/netlify.toml) untuk meng-host frontend statis dari `frontend/dist`.
+* **Railway:** Menggunakan berkas [railway.json](file:///d:/perpustakaan-main/perpustakaan-main/railway.json) untuk menjalankan backend Express Node.js secara persisten.
+
+---
+
+## ⚖️ Lisensi & Hak Cipta
+
+© 2026 YP Tunas Karya - Hak Cipta Dilindungi Undang-Undang. Dikembangkan untuk efisiensi operasional perpustakaan dan inventarisasi aset sekolah.

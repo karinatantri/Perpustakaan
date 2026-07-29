@@ -2451,6 +2451,12 @@ button.btn-secondary[onclick*="loadBooks"]:hover:not(:has(span))::after {
   }
 }
 
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .table-container {
   margin-top: 12px;
   border-radius: 16px;
@@ -2490,6 +2496,7 @@ button.btn-secondary[onclick*="loadBooks"]:hover:not(:has(span))::after {
 
 .table {
   width: 100%;
+  min-width: 650px;
   border-collapse: collapse;
   font-size: 13px;
   background-color: transparent;

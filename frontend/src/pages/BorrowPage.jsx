@@ -151,8 +151,9 @@ export default function BorrowPage() {
       setOfficerName('');
       setOfficerTitle('Petugas Perpustakaan');
     } catch (err) {
-      console.error(err);
-      setMessage('❌ Gagal menyimpan peminjaman. Periksa kembali data dan kode buku.');
+      console.error('Borrow submit error:', err);
+      const errorMsg = err.response?.data?.message || err.message || 'Gagal menyimpan peminjaman. Periksa kembali data dan kode buku.';
+      setMessage(`❌ ${errorMsg}`);
     } finally {
       setLoading(false);
     }

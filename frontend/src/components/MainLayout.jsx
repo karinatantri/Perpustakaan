@@ -60,18 +60,24 @@ export default function MainLayout() {
 
   const loadNotifications = async () => {
     try {
-      const res = await api.get('/transactions');
-      const txs = res.data || [];
-      
-      const notifs = txs.map((t) => {
+      const [txRes, notifRes] = await Promise.allSettled([
+        api.get('/transactions'),
+        api.get('/notifications')
+      ]);
+
+      const txs = txRes.status === 'fulfilled' ? (txRes.value.data || []) : [];
+      const systemNotifs = notifRes.status === 'fulfilled' ? (notifRes.value.data || []) : [];
+
+      // Map transaction notifications
+      const txNotifs = txs.map((t) => {
         const name = t.student?.name || 'Anggota';
         const nis = t.student?.nis || 'N/A';
         const bookCount = t.itemCount || 1;
         const time = t.borrowDate || t.createdAt;
-        
+
         const isSelf = userRole === 'student';
         const subject = isSelf ? 'Anda' : `${name} (NIS: ${nis})`;
-        
+
         let text = '';
         let icon = '📢';
         if (t.status === 'completed') {
@@ -94,19 +100,39 @@ export default function MainLayout() {
           text = `${subject} meminjam ${bookCount} buku.`;
           icon = '📋';
         }
-        
+
         return {
-          id: t.id,
+          id: `tx_${t.id}`,
           text,
           time,
           icon
         };
       });
-      
-      setNotifications(notifs);
-      
+
+      // Map system notifications (add, reduce, delete stock)
+      const sysNotifsMapped = systemNotifs.map((sn) => {
+        let icon = '🔔';
+        if (sn.type === 'book_add' || sn.type === 'inventory_add') icon = '➕';
+        else if (sn.type === 'book_reduce' || sn.type === 'inventory_reduce') icon = '➖';
+        else if (sn.type === 'book_delete' || sn.type === 'inventory_delete') icon = '🗑️';
+
+        return {
+          id: `sys_${sn.id}`,
+          text: sn.message || sn.title,
+          time: sn.createdAt,
+          icon
+        };
+      });
+
+      // Combine both, sort by time desc
+      const combined = [...sysNotifsMapped, ...txNotifs].sort(
+        (a, b) => new Date(b.time || 0) - new Date(a.time || 0)
+      );
+
+      setNotifications(combined);
+
       const savedRead = JSON.parse(localStorage.getItem('read_notifications') || '[]');
-      const unread = notifs.filter(n => !savedRead.includes(n.id)).length;
+      const unread = combined.filter((n) => !savedRead.includes(n.id)).length;
       setUnreadCount(unread);
     } catch (err) {
       console.error('Failed to load notifications in layout:', err);
@@ -226,7 +252,7 @@ export default function MainLayout() {
           )}
           <NavLink to="/app/books" className="nav-link">
             <span className="nav-icon">📖</span>
-            <span>{isStaff || isPrincipal ? 'Data Buku' : 'Katalog Buku'}</span>
+            <span>{isStaff || isPrincipal ? 'Data Buku & Barang' : 'Katalog Buku & Barang'}</span>
           </NavLink>
           {isStaff && (
             <NavLink to="/app/scan" className="nav-link">
@@ -301,7 +327,10 @@ export default function MainLayout() {
         </div>
       </header>
 
-      <main className="main-content">
+      <a href="#main-content" tabIndex={0} style={{ position: 'absolute', left: -9999, top: 'auto', width: 1, height: 1, overflow: 'hidden' }}>
+        Langsung ke konten utama
+      </a>
+      <main id="main-content" className="main-content" tabIndex={-1}>
         <Outlet />
       </main>
       

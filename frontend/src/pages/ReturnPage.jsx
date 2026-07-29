@@ -28,6 +28,27 @@ export default function ReturnPage() {
   const [foundBookData, setFoundBookData] = useState({ code: '', description: '' });
   const [returnSuccess, setReturnSuccess] = useState(null); // { transactionId, totalFine, status }
 
+  // Active Loan Dropdown State
+  const [activeTransactions, setActiveTransactions] = useState([]);
+  const [receiptResults, setReceiptResults] = useState([]);
+  const [showReceiptDropdown, setShowReceiptDropdown] = useState(false);
+
+  const loadActiveTransactions = async () => {
+    try {
+      const res = await api.get('/transactions');
+      const ongoing = (res.data || []).filter(
+        (t) => t.status === 'ongoing' || t.status === 'partially_returned' || t.status === 'has_problem_pending'
+      );
+      setActiveTransactions(ongoing);
+    } catch (err) {
+      console.error('Failed to load active transactions:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadActiveTransactions();
+  }, []);
+
   const searchStudents = async (q) => {
     if (!q) {
       setStudentResults([]);
@@ -70,6 +91,37 @@ export default function ReturnPage() {
       console.error(err);
     }
   };
+  const handleReceiptInputChange = (val) => {
+    setReceiptQuery(val);
+    setShowReceiptDropdown(true);
+    if (!val.trim()) {
+      setReceiptResults(activeTransactions.slice(0, 10));
+      return;
+    }
+    const qLower = val.toLowerCase();
+    const filtered = activeTransactions.filter((t) => {
+      const receipt = (t.receiptNumber || t.id || '').toLowerCase();
+      const sName = (t.student?.name || '').toLowerCase();
+      const sNis = (t.student?.nis || '').toLowerCase();
+      return receipt.includes(qLower) || sName.includes(qLower) || sNis.includes(qLower);
+    });
+    setReceiptResults(filtered.slice(0, 10));
+  };
+
+  const handleSelectTransaction = (tx) => {
+    setSelectedTransaction(tx);
+    setStudentQuery('');
+    setStudentResults([]);
+    setShowReceiptDropdown(false);
+    if (tx.status === 'complete' || tx.status === 'completed') {
+      setMessage('✅ Transaksi ini sudah selesai dikembalikan.');
+      setTransactionItems([]);
+      setSelectedItems({});
+    } else {
+      setMessage('');
+      loadTransactionItems(tx.id);
+    }
+  };
 
   useEffect(() => {
     const r = location.state?.openReceipt;
@@ -103,13 +155,6 @@ export default function ReturnPage() {
       console.error(err);
       setMessage('❌ Gagal memuat detail transaksi');
     }
-  };
-
-  const handleSelectTransaction = (tx) => {
-    setSelectedTransaction(tx);
-    setStudentQuery('');
-    setStudentResults([]);
-    loadTransactionItems(tx.id);
   };
 
   const toggleItemSelection = (itemId) => {
@@ -320,19 +365,24 @@ export default function ReturnPage() {
         <div className="form-card">
           <div className="form-card-header">
             <span className="form-card-icon">🎫</span>
-            <h3 className="form-card-title">Kode Peminjaman</h3>
+            <h3 className="form-card-title">Pilih / Scan Kode Peminjaman</h3>
           </div>
-          <div className="form-card-body">
+          <div className="form-card-body" style={{ position: 'relative' }}>
             <div className="code-input-group">
               <input
                 className="form-input code-input"
-                placeholder="Masukkan kode peminjaman atau scan QR..."
+                placeholder="🔍 Ketik/pilih kode TX, nama siswa, atau scan QR..."
                 value={receiptQuery}
-                onChange={(e) => setReceiptQuery(e.target.value)}
+                onFocus={() => {
+                  setShowReceiptDropdown(true);
+                  handleReceiptInputChange(receiptQuery);
+                }}
+                onChange={(e) => handleReceiptInputChange(e.target.value)}
                 onKeyPress={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
                     searchByReceipt(receiptQuery);
+                    setShowReceiptDropdown(false);
                   }
                 }}
               />
@@ -347,8 +397,40 @@ export default function ReturnPage() {
                 📷 Scan QR
               </button>
             </div>
-            <p className="form-hint">
-              💡 Scan QR pada struk peminjaman atau masukkan kode secara manual
+
+            {/* Dropdown Active Loan Transactions */}
+            {showReceiptDropdown && (receiptResults.length > 0 || activeTransactions.length > 0) && (
+              <div className="dropdown" style={{ marginTop: 4, width: '100%', maxHeight: 260, overflowY: 'auto' }}>
+                {(receiptResults.length > 0 ? receiptResults : activeTransactions.slice(0, 10)).map((tx) => (
+                  <button
+                    key={tx.id}
+                    type="button"
+                    className="dropdown-item"
+                    style={{ padding: '10px 14px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', textAlign: 'left', width: '100%' }}
+                    onClick={() => {
+                      setReceiptQuery(tx.receiptNumber || tx.id);
+                      setShowReceiptDropdown(false);
+                      handleSelectTransaction(tx);
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <strong style={{ color: '#1d4ed8', fontSize: 13 }}>🎫 {tx.receiptNumber || tx.id}</strong>
+                        <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>
+                          👤 {tx.student?.name || 'Siswa'} {tx.student?.nis ? `(${tx.student.nis})` : ''}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 11, background: '#eff6ff', color: '#1d4ed8', padding: '2px 8px', borderRadius: 12, fontWeight: 700 }}>
+                        {tx.borrowDate ? new Date(tx.borrowDate).toLocaleDateString('id-ID') : '-'}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <p className="form-hint" style={{ marginTop: 10 }}>
+              💡 Pilih transaksi peminjaman dari dropdown, scan QR struk, atau ketik kode peminjaman.
             </p>
           </div>
         </div>

@@ -11,15 +11,64 @@ try {
   configureCloudinary();
   getFirestore(); // ensure initialized
 
-  // CORS: Mengizinkan SEMUA origin agar proses login / akses API dari Vercel/localhost terjamin tanpa error
+  // Security headers with Helmet
+  try {
+    const helmet = require('helmet');
+    app.use(helmet({
+      contentSecurityPolicy: false, // allow inline scripts/images from external CDNs (Cloudinary, etc.)
+      crossOriginEmbedderPolicy: false
+    }));
+  } catch (_) {
+    console.warn('Helmet package not loaded, skipping security headers');
+  }
+
+  // Response compression
+  try {
+    const compression = require('compression');
+    app.use(compression());
+  } catch (_) {
+    console.warn('Compression package not loaded');
+  }
+
+  // Rate Limiting
+  try {
+    const rateLimit = require('express-rate-limit');
+    
+    // Global API rate limiter: max 300 requests per 15 minutes per IP
+    const apiLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 300,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { message: 'Terlalu banyak permintaan dari IP ini, coba lagi setelah 15 menit.' }
+    });
+    app.use('/api', apiLimiter);
+
+    // Auth rate limiter: max 15 login attempts per 15 minutes per IP
+    const authLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 15,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { message: 'Terlalu banyak percobaan login gagal. Coba lagi dalam 15 menit.' }
+    });
+    app.use('/api/auth/login', authLimiter);
+  } catch (_) {
+    console.warn('express-rate-limit package not loaded');
+  }
+
+  // CORS Configuration
   const corsOptions = {
-    // origin: true akan memantulkan origin dari request pengirim, sehingga semua diizinkan dengan kredensial
-    origin: true,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, or server-to-server)
+      if (!origin) return callback(null, true);
+      // In development or production, allow the request
+      return callback(null, true);
+    },
     credentials: true,
     optionsSuccessStatus: 200
   };
 
-  // Pastikan preflight CORS (`OPTIONS`) selalu dijawab (sering jadi penyebab "Network Error" di axios).
   app.options('*', cors(corsOptions));
   app.use(cors(corsOptions));
   app.use(express.json());
@@ -66,50 +115,36 @@ try {
     });
   });
 
-  // Public stats endpoint for landing page (no auth required)
+  // Public stats endpoint for landing page (optimized query)
   app.get('/api/public/stats', async (req, res) => {
     try {
       const db = getFirestore();
-      const [transactionsSnap, studentsSnap] = await Promise.all([
-        db.collection('transactions').get(),
-        db.collection('students').get()
+      const [studentsCountSnap, ongoingTxSnap] = await Promise.all([
+        db.collection('students').count().get(),
+        db.collection('transactions').where('status', '==', 'ongoing').get()
       ]);
 
-      const transactions = [];
-      transactionsSnap.forEach(doc => {
-        transactions.push(doc.data());
-      });
-      const totalStudents = studentsSnap.size;
-
+      const totalStudents = studentsCountSnap.data().count;
       const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayEnd = new Date(today);
-      todayEnd.setHours(23, 59, 59, 999);
 
-      const booksToday = transactions.filter((t) => {
-        if (!t.borrowDate) return false;
-        const borrowDate = new Date(t.borrowDate);
-        return borrowDate >= today && borrowDate <= todayEnd;
-      }).length;
+      let activeStudentsCount = 0;
+      let overdueBooksCount = 0;
+      const activeStudentIds = new Set();
 
-      const activeStudentIds = new Set(
-        transactions
-          .filter((t) => t.status === 'ongoing')
-          .map((t) => t.studentId)
-          .filter(Boolean)
-      );
-      
-      const activeStudents = activeStudentIds.size || totalStudents;
+      ongoingTxSnap.forEach(doc => {
+        const tx = doc.data();
+        if (tx.studentId) activeStudentIds.add(tx.studentId);
+        if (tx.dueDate && new Date(tx.dueDate) < today) {
+          overdueBooksCount++;
+        }
+      });
 
-      const overdue = transactions.filter((t) => {
-        if (t.status !== 'ongoing' || !t.dueDate) return false;
-        return new Date(t.dueDate) < new Date();
-      }).length;
+      activeStudentsCount = activeStudentIds.size || totalStudents;
 
       res.json({
-        booksToday,
-        activeStudents,
-        overdueBooks: overdue
+        booksToday: ongoingTxSnap.size,
+        activeStudents: activeStudentsCount,
+        overdueBooks: overdueBooksCount
       });
     } catch (err) {
       console.error('Failed to get public stats:', err);
@@ -118,28 +153,29 @@ try {
   });
 
   // Routers
-  // Menggunakan require di dalam blok try untuk memastikan module-level error tertangkap
   app.use('/api/students', require('./routes/students'));
   app.use('/api/books', require('./routes/books'));
   app.use('/api/items', require('./routes/items'));
   app.use('/api/transactions', require('./routes/transactions'));
   app.use('/api/inventories', require('./routes/inventories'));
+  app.use('/api/settings', require('./routes/settings'));
   app.use('/api/auth', require('./routes/auth'));
   app.use('/api/users', require('./routes/users'));
+  app.use('/api/notifications', require('./routes/notifications'));
 
   // Fallback 404
   app.use((req, res) => {
     res.status(404).json({ message: 'Not Found Endpoint', path: req.path });
   });
 
-  // Global Error Handler untuk Express (Menangkap Error 500 bawaan yang bersifat HTML)
+  // Global Error Handler untuk Express (SEC-2: Suppress stack trace in production)
   app.use((err, req, res, next) => {
     console.error('Express Critical Error:', err);
+    const isDev = process.env.NODE_ENV !== 'production';
     res.status(500).json({
       error: 'Internal Express Error',
       message: err.message,
-      stack: err.stack,
-      hint: 'Terjadi kegagalan fungsi di dalam Express, kemungkinan data tidak valid atau bug.'
+      ...(isDev ? { stack: err.stack } : {})
     });
   });
 

@@ -9,7 +9,22 @@ const router = express.Router();
 const db = getFirestore();
 const collection = db.collection('students');
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // Max 5MB
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+      'text/csv'
+    ];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only Excel (.xlsx, .xls) and CSV files are allowed'), false);
+    }
+  }
+});
 
 // List with optional filters
 router.get('/', auth(['admin', 'officer', 'teacher', 'principal']), async (req, res) => {
@@ -93,11 +108,11 @@ router.post('/', auth(['admin', 'officer']), async (req, res) => {
     });
 
     // Automatically create a user account for the student
-    const hashedPassword = await bcrypt.hash('password123', 10);
+    const passwordHash = await bcrypt.hash('password123', 10);
     const usersCol = db.collection('users');
     await usersCol.add({
       username: nis,
-      password: hashedPassword,
+      passwordHash,
       role: 'student',
       name: name,
       studentId: docRef.id,
@@ -113,17 +128,31 @@ router.post('/', auth(['admin', 'officer']), async (req, res) => {
   }
 });
 
-// Update
+// Update (whitelist fields to prevent mass assignment)
 router.put('/:id', auth(['admin', 'officer']), async (req, res) => {
   try {
     const { id } = req.params;
+    const { nis, name, class: className, major, birthDate, address, email, phone, status } = req.body;
+    const updates = {};
+    if (nis !== undefined) updates.nis = nis;
+    if (name !== undefined) updates.name = name;
+    if (className !== undefined) updates.class = className;
+    if (major !== undefined) updates.major = major;
+    if (birthDate !== undefined) updates.birthDate = birthDate;
+    if (address !== undefined) updates.address = address;
+    if (email !== undefined) updates.email = email;
+    if (phone !== undefined) updates.phone = phone;
+    if (status !== undefined) updates.status = status;
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: 'No valid fields to update' });
+    }
     const now = new Date().toISOString();
-    await collection.doc(id).update({
-      ...req.body,
-      updatedAt: now
-    });
-    const doc = await collection.doc(id).get();
-    if (!doc.exists) return res.status(404).json({ message: 'Student not found' });
+    updates.updatedAt = now;
+    const docRef = collection.doc(id);
+    const existing = await docRef.get();
+    if (!existing.exists) return res.status(404).json({ message: 'Student not found' });
+    await docRef.update(updates);
+    const doc = await docRef.get();
     res.json({ id: doc.id, ...doc.data() });
   } catch (err) {
     console.error(err);
@@ -185,7 +214,7 @@ router.post('/import', auth(['admin', 'officer']), upload.single('file'), async 
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
-    const hashedPassword = await bcrypt.hash('password123', 10);
+    const passwordHash = await bcrypt.hash('password123', 10);
 
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
@@ -193,11 +222,12 @@ router.post('/import', auth(['admin', 'officer']), upload.single('file'), async 
     const data = XLSX.utils.sheet_to_json(worksheet);
 
     const now = new Date().toISOString();
-    const batch = db.batch();
     let successCount = 0;
     let errorCount = 0;
     const errors = [];
 
+    // Collect valid rows first
+    const validRows = [];
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       const nis = String(row['NIS/NIM'] || row.nis || '').trim();
@@ -217,37 +247,48 @@ router.post('/import', auth(['admin', 'officer']), upload.single('file'), async 
         continue;
       }
 
-      const docRef = collection.doc();
-      batch.set(docRef, {
-        nis,
-        name,
-        class: String(row['Kelas/Prodi'] || row.class || '').trim() || '-',
-        major: String(row.Jurusan || row.major || '').trim() || '-',
-        birthDate: row['Tanggal Lahir'] || row.birthDate || '-',
-        address: row.Alamat || row.address || '-',
-        email: row.Email || row.email || '-',
-        phone: String(row['No HP'] || row.phone || '').trim() || '-',
-        status: 'active',
-        createdAt: now,
-        updatedAt: now
-      });
-
-      // Automatically create a user account for the student in the same batch
-      const userRef = db.collection('users').doc();
-      batch.set(userRef, {
-        username: nis,
-        password: hashedPassword,
-        role: 'student',
-        name: name,
-        studentId: docRef.id,
-        createdAt: now,
-        updatedAt: now
-      });
-
-      successCount++;
+      validRows.push({ nis, name, row });
     }
 
-    await batch.commit();
+    // Chunk into batches of max 200 writes (each row = 2 writes: student + user)
+    const CHUNK_SIZE = 200;
+    for (let c = 0; c < validRows.length; c += CHUNK_SIZE) {
+      const chunk = validRows.slice(c, c + CHUNK_SIZE);
+      const batch = db.batch();
+
+      for (const { nis, name, row } of chunk) {
+        const docRef = collection.doc();
+        batch.set(docRef, {
+          nis,
+          name,
+          class: String(row['Kelas/Prodi'] || row.class || '').trim() || '-',
+          major: String(row.Jurusan || row.major || '').trim() || '-',
+          birthDate: row['Tanggal Lahir'] || row.birthDate || '-',
+          address: row.Alamat || row.address || '-',
+          email: row.Email || row.email || '-',
+          phone: String(row['No HP'] || row.phone || '').trim() || '-',
+          status: 'active',
+          createdAt: now,
+          updatedAt: now
+        });
+
+        // Automatically create user account with correct field name
+        const userRef = db.collection('users').doc();
+        batch.set(userRef, {
+          username: nis,
+          passwordHash,
+          role: 'student',
+          name: name,
+          studentId: docRef.id,
+          createdAt: now,
+          updatedAt: now
+        });
+
+        successCount++;
+      }
+
+      await batch.commit();
+    }
 
     res.json({
       message: 'Import completed',

@@ -77,8 +77,30 @@ async function sendPushNotificationToStudent(studentId, title, body, data = {}) 
   }
 }
 
+/**
+ * Creates a system notification entry in Firestore `notifications` collection
+ * so staff & users receive real-time audit notifications in the app.
+ */
+async function createSystemNotification({ title, message, type = 'info', actorName = 'Sistem' }) {
+  try {
+    const notificationsCol = db.collection('notifications');
+    await notificationsCol.add({
+      title,
+      message,
+      type, // 'book_add' | 'book_reduce' | 'book_delete' | 'inventory_add' | 'inventory_reduce' | 'inventory_delete'
+      actorName,
+      createdAt: new Date().toISOString(),
+      read: false
+    });
+    console.log(`✓ System notification logged: [${type}] ${title}`);
+  } catch (err) {
+    console.error('Failed to create system notification:', err);
+  }
+}
+
 module.exports = {
   sendPushNotification,
   sendPushNotificationToUser,
-  sendPushNotificationToStudent
+  sendPushNotificationToStudent,
+  createSystemNotification
 };

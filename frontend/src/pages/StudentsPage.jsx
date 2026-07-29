@@ -4,6 +4,8 @@ import api from '../api.js';
 export default function StudentsPage() {
   const [students, setStudents] = useState([]);
   const [search, setSearch] = useState('');
+  const [selectedClass, setSelectedClass] = useState('');
+  const [selectedMajor, setSelectedMajor] = useState('');
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -173,17 +175,82 @@ export default function StudentsPage() {
     }
   };
 
+  const classList = Array.from(new Set(students.map((s) => s.class).filter(Boolean)));
+  const majorList = Array.from(new Set(students.map((s) => s.major).filter(Boolean)));
+
+  const filteredStudents = students.filter((s) => {
+    const matchClass = !selectedClass || s.class === selectedClass;
+    const matchMajor = !selectedMajor || s.major === selectedMajor;
+    return matchClass && matchMajor;
+  });
+
   return (
     <div>
-      <div className="page-header">
-        <h2 className="page-title">Data Siswa</h2>
-        <div className="page-actions">
-          <button type="button" className="btn-secondary" onClick={handleExport}>
+      <div className="page-header" style={{ marginBottom: 12 }}>
+        <div>
+          <h2 className="page-title">👥 Data Siswa</h2>
+          <p className="page-subtitle">Kelola direktori siswa, kelas, dan data keanggotaan perpustakaan</p>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
+        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14 }}>
+          <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>👥 Total Siswa</div>
+          <div style={{ fontSize: 22, color: '#0f172a', fontWeight: 800, marginTop: 4 }}>{students.length}</div>
+        </div>
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: 14 }}>
+          <div style={{ fontSize: 12, color: '#1e40af', fontWeight: 600 }}>🏫 Kelas Terdaftar</div>
+          <div style={{ fontSize: 22, color: '#1d4ed8', fontWeight: 800, marginTop: 4 }}>{classList.length}</div>
+        </div>
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: 14 }}>
+          <div style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>🎓 Jurusan / Keahlian</div>
+          <div style={{ fontSize: 22, color: '#16a34a', fontWeight: 800, marginTop: 4 }}>{majorList.length}</div>
+        </div>
+      </div>
+
+      <div
+        className="page-actions-row"
+        style={{
+          display: 'flex',
+          justify: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 12,
+          marginBottom: 20,
+          background: '#ffffff',
+          padding: '12px 16px',
+          borderRadius: 12,
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Aksi Direktori:</span>
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ padding: '8px 14px', fontSize: 13, borderRadius: 8 }}
+            onClick={() => loadStudents()}
+          >
+            🔄 Refresh Data
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ padding: '8px 14px', fontSize: 13, borderRadius: 8 }}
+            onClick={handleExport}
+          >
             📥 Export Excel
           </button>
           {isStaff && (
             <>
-              <label className="btn-secondary" style={{ cursor: 'pointer', margin: 0 }}>
+              <label
+                className="btn-secondary"
+                style={{ cursor: 'pointer', margin: 0, padding: '8px 14px', fontSize: 13, borderRadius: 8 }}
+              >
                 📤 Import Excel
                 <input
                   ref={fileInputRef}
@@ -193,14 +260,19 @@ export default function StudentsPage() {
                   style={{ display: 'none' }}
                 />
               </label>
-              <button type="button" className="btn-primary" onClick={() => setShowForm(!showForm)}>
-                {showForm ? 'Batal' : '+ Tambah Siswa'}
+
+              <div style={{ width: 1, height: 24, background: '#cbd5e1', margin: '0 2px' }}></div>
+
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ padding: '8px 16px', fontSize: 13, borderRadius: 8, background: '#1d4ed8', borderColor: '#1d4ed8' }}
+                onClick={() => setShowForm(!showForm)}
+              >
+                {showForm ? '✕ Batal' : '👥 + Tambah Siswa'}
               </button>
             </>
           )}
-          <button type="button" className="btn-secondary" onClick={() => loadStudents()}>
-            🔄 Refresh
-          </button>
         </div>
       </div>
 
@@ -211,8 +283,8 @@ export default function StudentsPage() {
       )}
 
       {showForm && (
-        <div className="form-card">
-          <h3 className="form-card-title">Tambah Siswa Baru</h3>
+        <div className="form-card" style={{ marginBottom: 20 }}>
+          <h3 className="form-card-title">👥 Tambah Siswa Baru</h3>
           <form onSubmit={handleSubmit}>
             <div className="form-grid">
               <label className="form-label">
@@ -222,6 +294,7 @@ export default function StudentsPage() {
                   required
                   value={formData.nis}
                   onChange={(e) => setFormData({ ...formData, nis: e.target.value })}
+                  placeholder="Nomor Induk Siswa"
                 />
               </label>
               <label className="form-label">
@@ -231,6 +304,7 @@ export default function StudentsPage() {
                   required
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="Nama Siswa"
                 />
               </label>
               <label className="form-label">
@@ -252,63 +326,135 @@ export default function StudentsPage() {
                 />
               </label>
             </div>
-            {message && <div className="form-message">{message}</div>}
-            <button type="submit" className="btn-primary">
-              Simpan
-            </button>
+            <div style={{ marginTop: 16 }}>
+              <button type="submit" className="btn-primary">
+                💾 Simpan Siswa
+              </button>
+            </div>
           </form>
         </div>
       )}
 
-      <div className="search-box">
-        <input
-          className="form-input"
-          placeholder="🔍 Cari siswa (NIS / nama)..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16, marginBottom: 20, boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ flex: 1, minWidth: 220, position: 'relative' }}>
+            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: '#94a3b8' }}>🔍</span>
+            <input
+              type="text"
+              placeholder="Cari berdasarkan NIS, nama siswa..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="form-input"
+              style={{ paddingLeft: 36, width: '100%' }}
+            />
+          </div>
+
+          <div style={{ width: 170 }}>
+            <select
+              value={selectedClass}
+              onChange={(e) => setSelectedClass(e.target.value)}
+              className="form-input"
+              style={{ width: '100%' }}
+            >
+              <option value="">🏫 Semua Kelas ({classList.length})</option>
+              {classList.map((cls) => (
+                <option key={cls} value={cls}>🏫 {cls}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ width: 170 }}>
+            <select
+              value={selectedMajor}
+              onChange={(e) => setSelectedMajor(e.target.value)}
+              className="form-input"
+              style={{ width: '100%' }}
+            >
+              <option value="">🎓 Semua Jurusan ({majorList.length})</option>
+              {majorList.map((mj) => (
+                <option key={mj} value={mj}>🎓 {mj}</option>
+              ))}
+            </select>
+          </div>
+
+          {(search || selectedClass || selectedMajor) && (
+            <button
+              type="button"
+              onClick={() => { setSearch(''); setSelectedClass(''); setSelectedMajor(''); }}
+              className="btn-secondary"
+              style={{ padding: '8px 14px', fontSize: 13 }}
+            >
+              ✕ Reset Filter
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
-        <div className="page-loading">
-          <div className="loading-spinner"></div>
-          <p>Memuat data...</p>
+        <div style={{ padding: 50, textAlign: 'center', color: '#64748b' }}>
+          <div className="loading-spinner" style={{ margin: '0 auto 12px' }}></div>
+          <p>Memuat data siswa...</p>
+        </div>
+      ) : filteredStudents.length === 0 ? (
+        <div style={{ padding: 50, textAlign: 'center', background: 'white', border: '1px solid #e2e8f0', borderRadius: 12 }}>
+          <div style={{ fontSize: 36, marginBottom: 8 }}>👥</div>
+          <p style={{ color: '#64748b', fontWeight: 600, fontSize: 15 }}>
+            {search || selectedClass || selectedMajor ? 'Tidak ada siswa yang sesuai dengan filter pencarian.' : 'Belum ada data siswa.'}
+          </p>
         </div>
       ) : (
-        <div className="table-container">
-          <table className="table">
+        <div className="table-responsive" style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 12, overflowX: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+          <table className="table" style={{ margin: 0, minWidth: 650 }}>
             <thead>
-              <tr>
+              <tr style={{ background: '#f8fafc' }}>
+                <th style={{ width: 60, textAlign: 'center' }}>No</th>
                 <th>NIS</th>
-                <th>Nama</th>
+                <th>Nama Lengkap</th>
                 <th>Kelas</th>
                 <th>Jurusan</th>
-                {isStaff && <th>Aksi</th>}
+                {isStaff && <th style={{ textAlign: 'center', width: 140 }}>Aksi</th>}
               </tr>
             </thead>
             <tbody>
-              {students.map((s) => (
-                <tr key={s.id}>
-                  <td><strong>{s.nis || '-'}</strong></td>
-                  <td>{s.name || '-'}</td>
-                  <td>{s.class || '-'}</td>
-                  <td>{s.major || '-'}</td>
+              {filteredStudents.map((s, idx) => (
+                <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ textAlign: 'center', color: '#64748b', fontWeight: 600 }}>{idx + 1}</td>
+                  <td style={{ fontWeight: 700, color: '#1d4ed8' }}>{s.nis || '-'}</td>
+                  <td style={{ fontWeight: 700, color: '#0f172a' }}>{s.name || '-'}</td>
+                  <td>
+                    {s.class ? (
+                      <span style={{ padding: '3px 8px', background: '#eff6ff', color: '#1d4ed8', borderRadius: 6, fontSize: 12, fontWeight: 600 }}>
+                        🏫 {s.class}
+                      </span>
+                    ) : (
+                      <span style={{ color: '#94a3b8' }}>-</span>
+                    )}
+                  </td>
+                  <td>
+                    {s.major ? (
+                      <span style={{ padding: '3px 8px', background: '#f0fdf4', color: '#166534', borderRadius: 6, fontSize: 12, fontWeight: 600 }}>
+                        🎓 {s.major}
+                      </span>
+                    ) : (
+                      <span style={{ color: '#94a3b8' }}>-</span>
+                    )}
+                  </td>
                   {isStaff && (
-                    <td>
-                      <div className="table-actions">
+                    <td style={{ textAlign: 'center' }}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                         <button
                           type="button"
-                          className="btn-icon btn-edit"
+                          className="btn-sm btn-outline"
                           onClick={() => openEditModal(s)}
-                          title="Edit"
+                          title="Edit Siswa"
                         >
-                          ✏️
+                          ✏️ Edit
                         </button>
                         <button
                           type="button"
-                          className="btn-icon btn-delete"
+                          className="btn-sm btn-danger"
                           onClick={() => openDeleteModal(s)}
-                          title="Hapus"
+                          title="Hapus Siswa"
                         >
                           🗑️
                         </button>
@@ -317,21 +463,6 @@ export default function StudentsPage() {
                   )}
                 </tr>
               ))}
-              {students.length === 0 && (
-                <tr>
-                  <td colSpan={isStaff ? 5 : 4} style={{ textAlign: 'center', padding: '40px' }}>
-                    <div className="empty-state">
-                      <div className="empty-icon">👥</div>
-                      <p>{search ? 'Tidak ada hasil pencarian' : 'Belum ada data siswa'}</p>
-                      {!search && isStaff && (
-                        <button type="button" className="btn-primary" onClick={() => setShowForm(true)}>
-                          Tambah Siswa Pertama
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>

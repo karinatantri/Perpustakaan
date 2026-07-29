@@ -89,7 +89,7 @@ async function seed() {
       // Auto-create a student user account
       await usersCol.add({
         username: s.nis,
-        password: hashedPassword,
+        passwordHash: hashedPassword,
         role: 'student',
         name: s.name,
         studentId: docRef.id,
