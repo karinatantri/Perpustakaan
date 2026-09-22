@@ -15,6 +15,8 @@ export default function AccountsPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [resettingAll, setResettingAll] = useState(false);
+  const [resettingId, setResettingId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRoleFilter, setSelectedRoleFilter] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -41,7 +43,14 @@ export default function AccountsPage() {
     try {
       const res = await api.get('/students');
       const students = res.data || [];
-      const classes = Array.from(new Set(students.map(s => s.class).filter(Boolean)));
+      const classes = Array.from(
+        new Set(
+          students
+            .filter((s) => s.role !== 'teacher')
+            .map((s) => s.class)
+            .filter((c) => c && c !== '-')
+        )
+      );
       setClassesList(classes.sort());
     } catch (err) {
       console.error('Failed to load classes:', err);
@@ -140,6 +149,54 @@ export default function AccountsPage() {
     }
   };
 
+  const handleResetAllPasswords = async () => {
+    const confirmMsg =
+      '⚠️ PERINGATAN KONFIRMASI:\n\n' +
+      'Apakah Anda yakin ingin mereset SELURUH kata sandi akun pengguna ke password default ("password123")?\n\n' +
+      '• Seluruh akun Petugas, Guru, dan Siswa akan direset ke kata sandi: password123\n' +
+      '• Akun dengan role ADMIN TIDAK akan diubah demi keamanan sistem.\n\n' +
+      'Klik OK untuk melanjutkan proses reset.';
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      setResettingAll(true);
+      setMessage('');
+      const res = await api.post('/users/reset-all-passwords');
+      setMessage(`✅ ${res.data.message || 'Berhasil mereset seluruh kata sandi akun!'}`);
+      setMessageType('success');
+      loadUsers();
+    } catch (err) {
+      console.error('Reset all passwords error:', err);
+      setMessage(err.response?.data?.message || '❌ Gagal mereset kata sandi seluruh akun');
+      setMessageType('error');
+    } finally {
+      setResettingAll(false);
+    }
+  };
+
+  const handleResetSinglePassword = async (userId, username) => {
+    const confirmMsg = `Apakah Anda yakin ingin mereset kata sandi akun "@${username}" ke password bawaan ("password123")?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      setResettingId(userId);
+      setMessage('');
+      const res = await api.post(`/users/${userId}/reset-password`);
+      setMessage(`✅ ${res.data.message || `Kata sandi akun @${username} berhasil direset ke password123!`}`);
+      setMessageType('success');
+      if (editId === userId) {
+        setForm((prev) => ({ ...prev, password: '' }));
+      }
+      loadUsers();
+    } catch (err) {
+      console.error('Reset single password error:', err);
+      setMessage(err.response?.data?.message || '❌ Gagal mereset kata sandi akun');
+      setMessageType('error');
+    } finally {
+      setResettingId(null);
+    }
+  };
+
   const roleBadge = (role) => {
     const map = {
       admin: { label: '🛡️ Admin', bg: '#fef2f2', color: '#991b1b', border: '#fecaca' },
@@ -206,14 +263,37 @@ export default function AccountsPage() {
             Kelola data akun, peranan (role), kata sandi, dan hak akses pengguna sistem perpustakaan
           </p>
         </div>
-        <button
-          type="button"
-          className="btn-primary"
-          onClick={resetForm}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: '700', borderRadius: '8px' }}
-        >
-          <span>➕</span> Tambah Akun Baru
-        </button>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={handleResetAllPasswords}
+            disabled={resettingAll}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '10px 18px',
+              fontWeight: '700',
+              borderRadius: '8px',
+              background: '#fff1f2',
+              color: '#be123c',
+              border: '1px solid #fecdd3',
+              cursor: resettingAll ? 'not-allowed' : 'pointer'
+            }}
+            title="Reset seluruh kata sandi akun pengguna ke default (password123), kecuali role admin"
+          >
+            <span>🔄</span> {resettingAll ? '⏳ Mereset Seluruh Akun...' : 'Reset Seluruh Akun (Default PW)'}
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={resetForm}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: '700', borderRadius: '8px' }}
+          >
+            <span>➕</span> Tambah Akun Baru
+          </button>
+        </div>
       </div>
 
       {/* Summary Stat Cards */}
@@ -382,29 +462,78 @@ export default function AccountsPage() {
                   {showPassword ? '🙈' : '👁️'}
                 </button>
               </div>
+              {editId && (
+                <div style={{ marginTop: '6px' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleResetSinglePassword(editId, form.username)}
+                    disabled={resettingId === editId || form.role === 'admin'}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#ea580c',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: (resettingId === editId || form.role === 'admin') ? 'not-allowed' : 'pointer',
+                      padding: 0,
+                      textDecoration: 'underline'
+                    }}
+                  >
+                    🔄 Reset password akun ini ke "password123"
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
-            {editId && (
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
+            <div>
+              {editId && (
+                <button
+                  type="button"
+                  onClick={() => handleResetSinglePassword(editId, form.username)}
+                  disabled={resettingId === editId || form.role === 'admin'}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '10px 16px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    background: '#fff7ed',
+                    color: '#c2410c',
+                    border: '1px solid #fed7aa',
+                    cursor: (resettingId === editId || form.role === 'admin') ? 'not-allowed' : 'pointer'
+                  }}
+                  title={form.role === 'admin' ? 'Akun admin tidak dapat direset' : 'Reset password ke default (password123)'}
+                >
+                  🔑 {resettingId === editId ? '⏳ Mereset...' : 'Reset Password ke Default ("password123")'}
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              {editId && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={resetForm}
+                  disabled={saving}
+                  style={{ padding: '10px 20px', borderRadius: '8px', fontWeight: 700 }}
+                >
+                  ✖️ Batal Edit
+                </button>
+              )}
               <button
-                type="button"
-                className="btn-secondary"
-                onClick={resetForm}
+                type="submit"
+                className="btn-primary"
                 disabled={saving}
-                style={{ padding: '10px 20px', borderRadius: '8px', fontWeight: 700 }}
+                style={{ padding: '10px 24px', borderRadius: '8px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '8px' }}
               >
-                ✖️ Batal Edit
+                {saving ? '⏳ Menyimpan...' : editId ? '💾 Simpan Perubahan' : '➕ Tambah Akun'}
               </button>
-            )}
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={saving}
-              style={{ padding: '10px 24px', borderRadius: '8px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '8px' }}
-            >
-              {saving ? '⏳ Menyimpan...' : editId ? '💾 Simpan Perubahan' : '➕ Tambah Akun'}
-            </button>
+            </div>
           </div>
         </form>
       </div>
@@ -452,7 +581,7 @@ export default function AccountsPage() {
                 <th style={{ padding: '14px 20px', fontSize: '12px', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Pengguna</th>
                 <th style={{ padding: '14px 20px', fontSize: '12px', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Nama Lengkap</th>
                 <th style={{ padding: '14px 20px', fontSize: '12px', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Role / Jabatan</th>
-                <th style={{ padding: '14px 20px', fontSize: '12px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', textAlign: 'center', width: '140px' }}>Aksi</th>
+                <th style={{ padding: '14px 20px', fontSize: '12px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', textAlign: 'center', width: '200px' }}>Aksi</th>
               </tr>
             </thead>
             <tbody>
@@ -481,7 +610,7 @@ export default function AccountsPage() {
                           color: 'white',
                           display: 'flex',
                           alignItems: 'center',
-                          justify: 'center',
+                          justifyContent: 'center',
                           fontWeight: 800,
                           fontSize: '15px',
                           boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
@@ -514,8 +643,27 @@ export default function AccountsPage() {
                           className="btn-sm btn-secondary"
                           onClick={() => handleEdit(u)}
                           style={{ padding: '4px 10px', fontSize: '12px', fontWeight: 700, background: '#eff6ff', color: '#1d4ed8', borderColor: '#bfdbfe' }}
+                          title="Edit Akun"
                         >
                           ✏️ Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-sm"
+                          onClick={() => handleResetSinglePassword(u.id, u.username)}
+                          disabled={resettingId === u.id || u.role === 'admin'}
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            background: '#fff7ed',
+                            color: '#c2410c',
+                            borderColor: '#fed7aa',
+                            cursor: (resettingId === u.id || u.role === 'admin') ? 'not-allowed' : 'pointer'
+                          }}
+                          title={u.role === 'admin' ? 'Akun admin tidak dapat direset' : 'Reset password ke default ("password123")'}
+                        >
+                          {resettingId === u.id ? '...' : '🔑 Reset'}
                         </button>
                         <button
                           type="button"
@@ -523,6 +671,7 @@ export default function AccountsPage() {
                           onClick={() => handleDelete(u.id, u.username)}
                           disabled={deletingId === u.id}
                           style={{ padding: '4px 10px', fontSize: '12px', fontWeight: 700, background: '#fef2f2', color: '#dc2626', borderColor: '#fecaca' }}
+                          title="Hapus Akun"
                         >
                           {deletingId === u.id ? '...' : '🗑️ Hapus'}
                         </button>
@@ -563,6 +712,15 @@ export default function AccountsPage() {
                 <div className="account-mobile-card-actions" style={{ display: 'flex', gap: '8px' }}>
                   <button type="button" className="btn-mobile-action" onClick={() => handleEdit(u)} style={{ flex: 1, padding: '6px', fontSize: '12px' }}>
                     ✏️ Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-mobile-action"
+                    onClick={() => handleResetSinglePassword(u.id, u.username)}
+                    disabled={resettingId === u.id || u.role === 'admin'}
+                    style={{ flex: 1, padding: '6px', fontSize: '12px', background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', fontWeight: 700 }}
+                  >
+                    {resettingId === u.id ? '...' : '🔑 Reset'}
                   </button>
                   <button
                     type="button"

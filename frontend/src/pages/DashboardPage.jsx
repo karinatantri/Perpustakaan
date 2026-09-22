@@ -13,8 +13,7 @@ export default function DashboardPage() {
     totalBooks: 0,
     totalStudents: 0,
     activeLoans: 0,
-    overdueBooks: 0,
-    totalInventories: 0
+    overdueBooks: 0
   });
   const [loading, setLoading] = useState(true);
   const [recentTransactions, setRecentTransactions] = useState([]);
@@ -29,18 +28,11 @@ export default function DashboardPage() {
       const res = await api.get('/transactions/stats');
       const { totalBooks = 0, totalStudents = 0, activeLoans = 0, overdueBooks = 0, recentTransactions = [] } = res.data || {};
 
-      let totalInventories = 0;
-      try {
-        const invRes = await api.get('/inventories');
-        totalInventories = (invRes.data || []).length;
-      } catch (_) {}
-
       setStats({
         totalBooks,
         totalStudents,
         activeLoans,
-        overdueBooks,
-        totalInventories
+        overdueBooks
       });
 
       setRecentTransactions(recentTransactions);
@@ -91,29 +83,94 @@ export default function DashboardPage() {
   };
 
   const getActivityText = (t) => {
+    const isTeacher = t.student?.role === 'teacher';
+    const roleLabel = isTeacher ? 'Guru' : 'Siswa';
     const name = t.student?.name || 'Anggota';
     const nis = t.student?.nis || 'N/A';
     const bookCount = t.itemCount || 1;
     const dateStr = formatDate(t.borrowDate);
     
     if (t.status === 'completed') {
-      return `Siswa (${nis} - ${name}) telah mengembalikan ${bookCount} buku pada ${formatDate(t.returnDate || t.updatedAt)}.`;
+      return `${roleLabel} (${nis} - ${name}) telah mengembalikan ${bookCount} buku pada ${formatDate(t.returnDate || t.updatedAt)}.`;
     }
     if (t.status === 'ongoing') {
       const today = new Date();
       const dueDate = new Date(t.dueDate);
       if (dueDate < today) {
-        return `⚠️ Siswa (${nis} - ${name}) terlambat mengembalikan ${bookCount} buku (Jatuh tempo: ${formatDate(t.dueDate)}).`;
+        return `⚠️ ${roleLabel} (${nis} - ${name}) terlambat mengembalikan ${bookCount} buku (Jatuh tempo: ${formatDate(t.dueDate)}).`;
       }
-      return `📢 Siswa (${nis} - ${name}) meminjam ${bookCount} buku pada ${dateStr}.`;
+      return `📢 ${roleLabel} (${nis} - ${name}) meminjam ${bookCount} buku pada ${dateStr}.`;
     }
     if (t.status === 'has_problem_pending') {
-      return `❌ Siswa (${nis} - ${name}) memiliki denda/masalah tertunda.`;
+      const fineText = Number(t.totalFine) > 0 ? ` (Denda: Rp ${Number(t.totalFine).toLocaleString('id-ID')})` : '';
+      const probText = t.problemSummary ? ` [${t.problemSummary}]` : '';
+      return `⚠️ ${roleLabel} (${nis} - ${name}) telah mengembalikan buku, namun denda belum lunas${fineText}${probText}.`;
     }
     if (t.status === 'has_problem_resolved') {
-      return `✅ Kasus denda (${nis} - ${name}) telah diselesaikan.`;
+      return `✅ Denda/ganti rugi (${nis} - ${name}) telah lunas diselesaikan.`;
     }
     return `Transaksi peminjaman ${bookCount} buku oleh ${name}.`;
+  };
+
+  const renderDashboardStatusBadge = (t) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const isOverdue = t.status === 'ongoing' && t.dueDate && new Date(t.dueDate) < today;
+
+    if (isOverdue) {
+      const due = new Date(t.dueDate);
+      const diffDays = Math.ceil((today.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+      return (
+        <span style={{ display: 'inline-block', padding: '3px 8px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 12, fontSize: 11, fontWeight: 700 }}>
+          ⚠️ Terlambat ({diffDays}h)
+        </span>
+      );
+    }
+
+    if (t.status === 'has_problem_pending') {
+      return (
+        <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+          <span style={{ padding: '3px 8px', background: '#fef2f2', color: '#b91c1c', border: '1px solid #fca5a5', borderRadius: 12, fontSize: 11, fontWeight: 700 }}>
+            ⚠️ Denda Belum Lunas
+          </span>
+          {Number(t.totalFine) > 0 && (
+            <span style={{ fontSize: 10, fontWeight: 800, color: '#991b1b' }}>
+              Rp {Number(t.totalFine).toLocaleString('id-ID')}
+            </span>
+          )}
+        </div>
+      );
+    }
+
+    if (t.status === 'has_problem_resolved') {
+      return (
+        <span style={{ padding: '3px 8px', background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', borderRadius: 12, fontSize: 11, fontWeight: 700 }}>
+          💚 Denda Lunas
+        </span>
+      );
+    }
+
+    if (t.status === 'partially_returned') {
+      return (
+        <span style={{ padding: '3px 8px', background: '#fff7ed', color: '#c2410c', border: '1px solid #ffedd5', borderRadius: 12, fontSize: 11, fontWeight: 700 }}>
+          🔄 Sebagian Kembali
+        </span>
+      );
+    }
+
+    if (t.status === 'completed') {
+      return (
+        <span style={{ padding: '3px 8px', background: '#d1fae5', color: '#065f46', border: '1px solid #a7f3d0', borderRadius: 12, fontSize: 11, fontWeight: 700 }}>
+          ✅ Selesai
+        </span>
+      );
+    }
+
+    return (
+      <span style={{ padding: '3px 8px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 12, fontSize: 11, fontWeight: 700 }}>
+        📢 Dipinjam
+      </span>
+    );
   };
 
   if (loading) {
@@ -180,7 +237,7 @@ export default function DashboardPage() {
               onClick={() => navigate('/app/books')}
               style={{ padding: '8px 14px', background: 'white', color: '#065f46', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
             >
-              📖 Data Buku & Barang
+              📖 Data Buku
             </button>
             {isStaff && (
               <>
@@ -211,8 +268,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* 5 Executive Stat Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
+      {/* 4 Executive Stat Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
         <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 12, padding: 18, boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Total Judul Buku</span>
@@ -224,11 +281,11 @@ export default function DashboardPage() {
 
         <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 12, padding: 18, boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Siswa Terdaftar</span>
+            <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Anggota Terdaftar</span>
             <span style={{ fontSize: 24 }}>👥</span>
           </div>
           <div style={{ fontSize: 26, fontWeight: 800, color: '#1d4ed8', marginTop: 8 }}>{stats.totalStudents}</div>
-          <span style={{ fontSize: 12, color: '#1d4ed8', fontWeight: 600 }}>Anggota Perpustakaan</span>
+          <span style={{ fontSize: 12, color: '#1d4ed8', fontWeight: 600 }}>Siswa & Guru</span>
         </div>
 
         <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 12, padding: 18, boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
@@ -249,15 +306,6 @@ export default function DashboardPage() {
           <span style={{ fontSize: 12, color: stats.overdueBooks > 0 ? '#dc2626' : '#64748b', fontWeight: 600 }}>
             {stats.overdueBooks > 0 ? 'Perlu Pengembalian' : 'Tidak Ada Denda'}
           </span>
-        </div>
-
-        <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 12, padding: 18, boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Inventaris Barang</span>
-            <span style={{ fontSize: 24 }}>📦</span>
-          </div>
-          <div style={{ fontSize: 26, fontWeight: 800, color: '#059669', marginTop: 8 }}>{stats.totalInventories}</div>
-          <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>Perlengkapan Sekolah</span>
         </div>
       </div>
 
@@ -306,7 +354,7 @@ export default function DashboardPage() {
                       )}
                     </td>
                     <td style={{ textAlign: 'center' }}>
-                      <span className={`status-badge status-${t.status}`}>{t.status}</span>
+                      {renderDashboardStatusBadge(t)}
                     </td>
                   </tr>
                 ))}

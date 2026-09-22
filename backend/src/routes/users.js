@@ -53,20 +53,123 @@ router.post('/', auth(['admin']), async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
     console.log('[CREATE USER] Password hashed successfully');
     
+    let studentId = null;
+    const now = new Date().toISOString();
+
+    // If role is teacher, ensure corresponding teacher member record exists in students collection
+    if (role === 'teacher') {
+      const studentsCol = db.collection('students');
+      const existingMemberSnap = await studentsCol.where('nis', '==', username).limit(1).get();
+      if (!existingMemberSnap.empty) {
+        studentId = existingMemberSnap.docs[0].id;
+        await studentsCol.doc(studentId).update({
+          name: name || existingMemberSnap.docs[0].data().name,
+          class: homeroomClass || existingMemberSnap.docs[0].data().class || '-',
+          role: 'teacher',
+          updatedAt: now
+        });
+      } else {
+        const newMemberRef = await studentsCol.add({
+          nis: username,
+          name: name || username,
+          class: homeroomClass || '-',
+          major: 'Guru',
+          role: 'teacher',
+          status: 'active',
+          createdAt: now,
+          updatedAt: now
+        });
+        studentId = newMemberRef.id;
+      }
+    }
+
     const docRef = await usersCol.add({
       username,
       passwordHash,
       role,
       name,
+      studentId,
       homeroomClass: role === 'teacher' ? homeroomClass : null,
-      createdAt: new Date().toISOString()
+      createdAt: now,
+      updatedAt: now
     });
 
-    console.log('[CREATE USER] User created successfully:', { id: docRef.id, username, role });
-    res.status(201).json({ id: docRef.id, username, role, name, homeroomClass });
+    console.log('[CREATE USER] User created successfully:', { id: docRef.id, username, role, studentId });
+    res.status(201).json({ id: docRef.id, username, role, name, homeroomClass, studentId });
   } catch (err) {
     console.error('[CREATE USER] Error:', err);
     res.status(500).json({ message: 'Gagal membuat pengguna: ' + err.message });
+  }
+});
+
+// Reset all users' password to default 'password123' except role 'admin'
+router.post('/reset-all-passwords', auth(['admin']), async (req, res) => {
+  try {
+    const passwordHash = await bcrypt.hash('password123', 10);
+    const now = new Date().toISOString();
+
+    const snap = await usersCol.get();
+    const nonAdminDocs = snap.docs.filter((doc) => {
+      const data = doc.data();
+      return data.role !== 'admin';
+    });
+
+    if (nonAdminDocs.length === 0) {
+      return res.json({ message: 'Tidak ada akun non-admin yang perlu direset', count: 0 });
+    }
+
+    // Firestore batch supports up to 500 operations per batch
+    const BATCH_SIZE = 400;
+    for (let i = 0; i < nonAdminDocs.length; i += BATCH_SIZE) {
+      const chunk = nonAdminDocs.slice(i, i + BATCH_SIZE);
+      const batch = db.batch();
+      chunk.forEach((doc) => {
+        batch.update(doc.ref, {
+          passwordHash,
+          updatedAt: now
+        });
+      });
+      await batch.commit();
+    }
+
+    console.log(`[RESET ALL PASSWORDS] Successfully reset passwords for ${nonAdminDocs.length} non-admin accounts`);
+    res.json({
+      message: `Berhasil mereset kata sandi ${nonAdminDocs.length} akun ke password default ("password123"). Akun admin tidak diubah.`,
+      count: nonAdminDocs.length
+    });
+  } catch (err) {
+    console.error('[RESET ALL PASSWORDS] Error:', err);
+    res.status(500).json({ message: 'Gagal mereset kata sandi seluruh akun: ' + err.message });
+  }
+});
+
+// Reset single user's password to default 'password123'
+router.post('/:id/reset-password', auth(['admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userDoc = await usersCol.doc(id).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ message: 'Pengguna tidak ditemukan' });
+    }
+
+    const userData = userDoc.data();
+    const passwordHash = await bcrypt.hash('password123', 10);
+    const now = new Date().toISOString();
+
+    await usersCol.doc(id).update({
+      passwordHash,
+      updatedAt: now
+    });
+
+    console.log(`[RESET SINGLE PASSWORD] Reset password for @${userData.username} to password123`);
+    res.json({
+      message: `Kata sandi akun @${userData.username} berhasil direset ke password default ("password123").`,
+      userId: id,
+      username: userData.username
+    });
+  } catch (err) {
+    console.error('[RESET SINGLE PASSWORD] Error:', err);
+    res.status(500).json({ message: 'Gagal mereset kata sandi akun: ' + err.message });
   }
 });
 
@@ -81,6 +184,7 @@ router.put('/:id', auth(['admin']), async (req, res) => {
       return res.status(404).json({ message: 'Pengguna tidak ditemukan' });
     }
 
+    const currentData = userDoc.data();
     const updates = {};
     
     if (username) {
@@ -104,11 +208,57 @@ router.put('/:id', auth(['admin']), async (req, res) => {
       updates.passwordHash = await bcrypt.hash(password, 10);
     }
     if (typeof homeroomClass !== 'undefined') {
-      updates.homeroomClass = (role === 'teacher' || (!role && updates.homeroomClass)) ? homeroomClass : null;
+      updates.homeroomClass = (role === 'teacher' || (!role && (currentData.role === 'teacher' || updates.homeroomClass))) ? homeroomClass : null;
     }
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ message: 'Tidak ada perubahan' });
+    }
+
+    const now = new Date().toISOString();
+    updates.updatedAt = now;
+
+    // Sync to member record in students if this is a teacher
+    const isTeacher = (role === 'teacher') || (!role && currentData.role === 'teacher');
+    let memberId = currentData.studentId;
+    const studentsCol = db.collection('students');
+
+    if (isTeacher) {
+      const memberUpdates = { role: 'teacher', updatedAt: now };
+      if (name !== undefined) memberUpdates.name = name;
+      if (username !== undefined) memberUpdates.nis = username;
+      if (typeof homeroomClass !== 'undefined') memberUpdates.class = homeroomClass || '-';
+
+      if (memberId) {
+        const memDoc = await studentsCol.doc(memberId).get();
+        if (memDoc.exists) {
+          await studentsCol.doc(memberId).update(memberUpdates);
+        } else {
+          memberId = null;
+        }
+      }
+
+      if (!memberId) {
+        // Find by username/nis or create
+        const memSnap = await studentsCol.where('nis', '==', username || currentData.username).limit(1).get();
+        if (!memSnap.empty) {
+          memberId = memSnap.docs[0].id;
+          await studentsCol.doc(memberId).update(memberUpdates);
+        } else {
+          const newMem = await studentsCol.add({
+            nis: username || currentData.username,
+            name: name || currentData.name || currentData.username,
+            class: homeroomClass || currentData.homeroomClass || '-',
+            major: 'Guru',
+            role: 'teacher',
+            status: 'active',
+            createdAt: now,
+            updatedAt: now
+          });
+          memberId = newMem.id;
+        }
+        updates.studentId = memberId;
+      }
     }
 
     await usersCol.doc(id).update(updates);
@@ -119,7 +269,7 @@ router.put('/:id', auth(['admin']), async (req, res) => {
   }
 });
 
-// Delete user (with FCM token cleanup)
+// Delete user (with member doc and FCM token cleanup)
 router.delete('/:id', auth(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
@@ -128,14 +278,22 @@ router.delete('/:id', auth(['admin']), async (req, res) => {
       return res.status(404).json({ message: 'Pengguna tidak ditemukan' });
     }
 
+    const userData = userDoc.data();
+
     // Clean up FCM tokens associated with this user
     const fcmSnap = await db.collection('fcm_tokens').where('userId', '==', id).get();
     const batch = db.batch();
     fcmSnap.docs.forEach(doc => batch.delete(doc.ref));
+
+    // If teacher has associated member doc in students, clean up member record as well
+    if (userData.studentId) {
+      batch.delete(db.collection('students').doc(userData.studentId));
+    }
+
     batch.delete(usersCol.doc(id));
     await batch.commit();
 
-    res.json({ id, message: 'Pengguna berhasil dihapus' });
+    res.json({ id, message: 'Pengguna dan data anggota terkait berhasil dihapus' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Gagal menghapus pengguna' });

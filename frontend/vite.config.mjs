@@ -25,17 +25,11 @@ export default defineConfig({
     })
   ],
   server: {
-    // true = bind 0.0.0.0 — bisa diakses dari HP/laptop lain di Wi‑Fi yang sama (http://IP-PC:5173)
+    // true = bind 0.0.0.0 — bisa diakses dari HP/laptop lain di Wi‑Fi yang sama (https://IP-PC:5173)
     host: true,
     port: 5173,
     strictPort: true,
-    allowedHosts: [
-      'localhost',
-      '127.0.0.1',
-      '192.168.1.12',
-      '192.168.100.185',
-      'motivational-coleen-bizarre.ngrok-free.dev'
-    ],
+    allowedHosts: true,
     https: httpsConfig,
     hmr: {
       overlay: true

@@ -94,8 +94,14 @@ export default function MainLayout() {
             icon = '📤';
           }
         } else if (t.status === 'has_problem_pending') {
-          text = `${subject} denda/kasus pending.`;
-          icon = '❌';
+          text = `${subject} mengembalikan buku dengan denda/ganti rugi yang belum lunas.`;
+          icon = '⚠️';
+        } else if (t.status === 'has_problem_resolved') {
+          text = `Denda/ganti rugi ${subject} telah lunas diselesaikan.`;
+          icon = '💚';
+        } else if (t.status === 'partially_returned') {
+          text = `${subject} baru mengembalikan sebagian buku.`;
+          icon = '🔄';
         } else {
           text = `${subject} meminjam ${bookCount} buku.`;
           icon = '📋';
@@ -112,9 +118,9 @@ export default function MainLayout() {
       // Map system notifications (add, reduce, delete stock)
       const sysNotifsMapped = systemNotifs.map((sn) => {
         let icon = '🔔';
-        if (sn.type === 'book_add' || sn.type === 'inventory_add') icon = '➕';
-        else if (sn.type === 'book_reduce' || sn.type === 'inventory_reduce') icon = '➖';
-        else if (sn.type === 'book_delete' || sn.type === 'inventory_delete') icon = '🗑️';
+        if (sn.type === 'book_add') icon = '➕';
+        else if (sn.type === 'book_reduce') icon = '➖';
+        else if (sn.type === 'book_delete') icon = '🗑️';
 
         return {
           id: `sys_${sn.id}`,
@@ -247,12 +253,12 @@ export default function MainLayout() {
           {(isStaff || isPrincipal || (userRole === 'teacher' && user.homeroomClass)) && (
             <NavLink to="/app/students" className="nav-link">
               <span className="nav-icon">👥</span>
-              <span>Data Siswa</span>
+              <span>Data Siswa & Guru</span>
             </NavLink>
           )}
           <NavLink to="/app/books" className="nav-link">
             <span className="nav-icon">📖</span>
-            <span>{isStaff || isPrincipal ? 'Data Buku & Barang' : 'Katalog Buku & Barang'}</span>
+            <span>{isStaff || isPrincipal ? 'Data Buku' : 'Katalog Buku'}</span>
           </NavLink>
           {isStaff && (
             <NavLink to="/app/scan" className="nav-link">
@@ -274,7 +280,7 @@ export default function MainLayout() {
           )}
           <NavLink to="/app/transactions" className="nav-link">
             <span className="nav-icon">📋</span>
-            <span>{isStaff || isPrincipal ? 'Transaksi' : userRole === 'teacher' ? 'Peminjaman Siswa' : 'Pinjaman Saya'}</span>
+            <span>{isStaff || isPrincipal ? 'Transaksi' : userRole === 'teacher' && user.homeroomClass ? 'Pinjaman Saya & Kelas' : 'Pinjaman Saya'}</span>
           </NavLink>
           {isAdmin && (
             <NavLink to="/app/accounts" className="nav-link">
@@ -353,7 +359,7 @@ export default function MainLayout() {
           ) : (
             <NavLink to="/app/transactions" className="bottom-nav-link">
               <span className="bottom-nav-icon">📋</span>
-              <span className="bottom-nav-label">{userRole === 'teacher' ? 'Pinjaman Siswa' : 'Pinjaman'}</span>
+              <span className="bottom-nav-label">{userRole === 'teacher' && user.homeroomClass ? 'Pinjaman' : 'Pinjaman Saya'}</span>
             </NavLink>
           )}
           <button 
@@ -400,7 +406,7 @@ export default function MainLayout() {
                 >
                   <div className="mobile-sheet-link-content">
                     <span className="mobile-sheet-link-icon">👥</span>
-                    <span>Data Siswa</span>
+                    <span>Data Siswa & Guru</span>
                   </div>
                   <span className="mobile-sheet-link-arrow">❯</span>
                 </NavLink>

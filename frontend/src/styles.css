@@ -3104,6 +3104,24 @@ button.btn-secondary[onclick*="loadBooks"]:hover:not(:has(span))::after {
   color: #374151;
 }
 
+.status-has_problem_pending {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+}
+
+.status-has_problem_resolved {
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.status-partially_returned {
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+
 /* Badge */
 .badge {
   display: inline-block;

@@ -71,19 +71,30 @@ export default function ReturnPage() {
       );
       const tx = res.data;
       setSelectedTransaction(tx);
+      const returnedItems = Array.isArray(tx.items) ? tx.items : [];
 
       // Check transaction status
-      if (tx.status === 'complete' || tx.status === 'completed') {
-        // Already returned - show message and receipt button
-        setMessage('✅ Transaksi ini sudah selesai dikembalikan.');
-        setTransactionItems([]);
+      if (tx.status === 'complete' || tx.status === 'completed' || tx.status === 'has_problem_resolved') {
+        setMessage('✅ Transaksi ini sudah selesai dikembalikan & seluruh denda telah lunas.');
+        if (returnedItems.length > 0) {
+          setTransactionItems(returnedItems);
+        } else {
+          loadTransactionItems(tx.id);
+        }
         setSelectedItems({});
-      } else if (tx.status === 'pending_payment' || tx.status === 'partially_returned') {
-        // Has issues - show message with resolve option
-        setMessage('⚠️ Transaksi ini memiliki masalah (denda belum dibayar atau beberapa buku belum dikembalikan).');
+      } else if (tx.status === 'has_problem_pending') {
+        setMessage(`⚠️ Transaksi berstatus "Denda Belum Lunas"${tx.totalFine ? ` (Rp ${Number(tx.totalFine).toLocaleString('id-ID')})` : ''}. Buku sudah dikembalikan, silakan konfirmasi pembayaran denda.`);
+        if (returnedItems.length > 0) {
+          setTransactionItems(returnedItems);
+        } else {
+          loadTransactionItems(tx.id);
+        }
+        setSelectedItems({});
+      } else if (tx.status === 'partially_returned') {
+        setMessage('🔄 Transaksi ini baru dikembalikan sebagian. Silakan proses buku yang tersisa.');
         loadTransactionItems(tx.id);
       } else {
-        // Ongoing - normal return flow
+        setMessage('');
         loadTransactionItems(tx.id);
       }
     } catch (err) {
@@ -113,9 +124,12 @@ export default function ReturnPage() {
     setStudentQuery('');
     setStudentResults([]);
     setShowReceiptDropdown(false);
-    if (tx.status === 'complete' || tx.status === 'completed') {
-      setMessage('✅ Transaksi ini sudah selesai dikembalikan.');
-      setTransactionItems([]);
+    if (tx.status === 'complete' || tx.status === 'completed' || tx.status === 'has_problem_resolved') {
+      setMessage('✅ Transaksi ini sudah selesai dikembalikan & seluruh denda telah lunas.');
+      loadTransactionItems(tx.id);
+    } else if (tx.status === 'has_problem_pending') {
+      setMessage(`⚠️ Transaksi berstatus "Denda Belum Lunas"${tx.totalFine ? ` (Rp ${Number(tx.totalFine).toLocaleString('id-ID')})` : ''}. Buku sudah dikembalikan, silakan konfirmasi pelunasan denda.`);
+      loadTransactionItems(tx.id);
       setSelectedItems({});
     } else {
       setMessage('');
@@ -346,10 +360,21 @@ export default function ReturnPage() {
                     className="dropdown-item"
                     onClick={() => handleSelectTransaction(tx)}
                   >
-                    <div>
-                      <strong>{tx.student?.name || '-'}</strong>
+                    <div style={{ textAlign: 'left' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <strong>{tx.student?.name || '-'}</strong>
+                        {tx.student?.role === 'teacher' ? (
+                          <span style={{ fontSize: 10, padding: '1px 6px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: 4, fontWeight: 700 }}>
+                            👨‍🏫 GURU
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 10, padding: '1px 6px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 4, fontWeight: 700 }}>
+                            🎓 SISWA
+                          </span>
+                        )}
+                      </div>
                       <div className="dropdown-meta">
-                        Kode: {tx.receiptNumber} • {tx.borrowDate ? new Date(tx.borrowDate).toLocaleDateString('id-ID') : '-'}
+                        {tx.student?.role === 'teacher' ? `NIP/NUPTK: ${tx.student?.nis || '-'} • Guru` : `NIS: ${tx.student?.nis || '-'} • ${tx.student?.class || ''}`} | Kode: {tx.receiptNumber} • {tx.borrowDate ? new Date(tx.borrowDate).toLocaleDateString('id-ID') : '-'}
                       </div>
                     </div>
                   </button>
@@ -416,13 +441,26 @@ export default function ReturnPage() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
                         <strong style={{ color: '#1d4ed8', fontSize: 13 }}>🎫 {tx.receiptNumber || tx.id}</strong>
-                        <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>
-                          👤 {tx.student?.name || 'Siswa'} {tx.student?.nis ? `(${tx.student.nis})` : ''}
+                        <div style={{ fontSize: 12, color: '#475569', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span>{tx.student?.role === 'teacher' ? '👨‍🏫' : '👤'} {tx.student?.name || 'Peminjam'} {tx.student?.nis ? `(${tx.student.nis})` : ''}</span>
+                          <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 4, background: tx.student?.role === 'teacher' ? '#ecfdf5' : '#eff6ff', color: tx.student?.role === 'teacher' ? '#047857' : '#1d4ed8', border: tx.student?.role === 'teacher' ? '1px solid #a7f3d0' : '1px solid #bfdbfe', fontWeight: 700 }}>
+                            {tx.student?.role === 'teacher' ? 'GURU' : 'SISWA'}
+                          </span>
                         </div>
                       </div>
-                      <span style={{ fontSize: 11, background: '#eff6ff', color: '#1d4ed8', padding: '2px 8px', borderRadius: 12, fontWeight: 700 }}>
-                        {tx.borrowDate ? new Date(tx.borrowDate).toLocaleDateString('id-ID') : '-'}
-                      </span>
+                      {tx.status === 'has_problem_pending' ? (
+                        <span style={{ fontSize: 11, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fca5a5', padding: '2px 8px', borderRadius: 12, fontWeight: 700 }}>
+                          ⚠️ Denda Belum Lunas
+                        </span>
+                      ) : tx.status === 'partially_returned' ? (
+                        <span style={{ fontSize: 11, background: '#fff7ed', color: '#c2410c', border: '1px solid #ffedd5', padding: '2px 8px', borderRadius: 12, fontWeight: 700 }}>
+                          🔄 Sebagian
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 11, background: '#eff6ff', color: '#1d4ed8', padding: '2px 8px', borderRadius: 12, fontWeight: 700 }}>
+                          {tx.borrowDate ? new Date(tx.borrowDate).toLocaleDateString('id-ID') : '-'}
+                        </span>
+                      )}
                     </div>
                   </button>
                 ))}
@@ -447,7 +485,18 @@ export default function ReturnPage() {
             <div className="transaction-info">
               <div className="info-row">
                 <span className="info-label">Peminjam:</span>
-                <span className="info-value">{selectedTransaction.student?.name || '-'}</span>
+                <span className="info-value" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <strong>{selectedTransaction.student?.name || '-'}</strong>
+                  {selectedTransaction.student?.role === 'teacher' ? (
+                    <span style={{ fontSize: 11, padding: '2px 8px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: 12, fontWeight: 700 }}>
+                      👨‍🏫 Guru (NIP/NUPTK: {selectedTransaction.student?.nis || '-'})
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 11, padding: '2px 8px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 12, fontWeight: 700 }}>
+                      🎓 Siswa (NIS: {selectedTransaction.student?.nis || '-'})
+                    </span>
+                  )}
+                </span>
               </div>
               <div className="info-row">
                 <span className="info-label">Kode Peminjaman:</span>
@@ -457,11 +506,15 @@ export default function ReturnPage() {
                 <span className="info-label">Status:</span>
                 <span className="info-value">
                   {selectedTransaction.status === 'ongoing' && '🟢 Sedang Dipinjam'}
-                  {selectedTransaction.status === 'complete' && '✅ Selesai'}
-                  {selectedTransaction.status === 'completed' && '✅ Selesai'}
-                  {selectedTransaction.status === 'pending_payment' && '⚠️ Menunggu Pembayaran'}
-                  {selectedTransaction.status === 'partially_returned' && '⚠️ Sebagian Dikembalikan'}
-                  {!['ongoing', 'complete', 'completed', 'pending_payment', 'partially_returned'].includes(selectedTransaction.status) && selectedTransaction.status}
+                  {(selectedTransaction.status === 'complete' || selectedTransaction.status === 'completed') && '✅ Selesai'}
+                  {selectedTransaction.status === 'has_problem_pending' && (
+                    <span style={{ color: '#dc2626', fontWeight: 800 }}>
+                      ⚠️ Denda Belum Lunas {selectedTransaction.totalFine ? `(Rp ${Number(selectedTransaction.totalFine).toLocaleString('id-ID')})` : ''}
+                    </span>
+                  )}
+                  {selectedTransaction.status === 'has_problem_resolved' && '💚 Denda Lunas (Selesai)'}
+                  {selectedTransaction.status === 'partially_returned' && '🔄 Sebagian Dikembalikan'}
+                  {!['ongoing', 'complete', 'completed', 'has_problem_pending', 'has_problem_resolved', 'partially_returned', 'pending_payment'].includes(selectedTransaction.status) && selectedTransaction.status}
                 </span>
               </div>
               <div className="info-row">
@@ -491,7 +544,7 @@ export default function ReturnPage() {
             </div>
 
             {/* Status Messages */}
-            {(selectedTransaction.status === 'complete' || selectedTransaction.status === 'completed') && (
+            {(selectedTransaction.status === 'complete' || selectedTransaction.status === 'completed' || selectedTransaction.status === 'has_problem_resolved') && (
               <div style={{
                 marginTop: '16px',
                 padding: '16px',
@@ -502,7 +555,7 @@ export default function ReturnPage() {
               }}>
                 <div style={{ fontSize: '48px', marginBottom: '8px' }}>✅</div>
                 <h4 style={{ margin: '0 0 8px 0', color: '#166534', fontWeight: '700' }}>
-                  Buku Sudah Dikembalikan
+                  {selectedTransaction.status === 'has_problem_resolved' ? 'Buku Dikembalikan & Denda Telah Lunas' : 'Buku Sudah Dikembalikan'}
                 </h4>
                 <p style={{ margin: '0 0 16px 0', color: '#15803d', fontSize: '14px' }}>
                   Transaksi ini sudah selesai. Silakan cetak struk jika diperlukan.
@@ -528,28 +581,50 @@ export default function ReturnPage() {
               </div>
             )}
 
-            {(selectedTransaction.status === 'pending_payment' || selectedTransaction.status === 'partially_returned') && (
+            {selectedTransaction.status === 'has_problem_pending' && (
               <div style={{
                 marginTop: '16px',
-                padding: '16px',
-                background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
+                padding: '20px',
+                background: '#fef2f2',
                 borderRadius: '12px',
-                border: '2px solid #fcd34d',
+                border: '2px solid #fca5a5',
                 textAlign: 'center'
               }}>
-                <div style={{ fontSize: '48px', marginBottom: '8px' }}>⚠️</div>
-                <h4 style={{ margin: '0 0 8px 0', color: '#92400e', fontWeight: '700' }}>
-                  Transaksi Memiliki Masalah
+                <div style={{ fontSize: '44px', marginBottom: '8px' }}>⚠️</div>
+                <h4 style={{ margin: '0 0 6px 0', color: '#991b1b', fontWeight: '800', fontSize: '17px' }}>
+                  Buku Sudah Dikembalikan — Denda / Ganti Rugi Belum Lunas
                 </h4>
-                <p style={{ margin: '0 0 16px 0', color: '#78350f', fontSize: '14px' }}>
-                  {selectedTransaction.status === 'pending_payment'
-                    ? 'Siswa belum menyelesaikan pembayaran denda atau beberapa buku belum dikembalikan.'
-                    : 'Beberapa buku belum dikembalikan atau ada masalah lainnya.'}
+                <p style={{ margin: '0 0 14px 0', color: '#7f1d1d', fontSize: '13px', lineHeight: 1.5 }}>
+                  Buku pada transaksi ini telah diterima di perpustakaan, namun tercatat denda / tanggungan sebesar{' '}
+                  <strong style={{ fontSize: '15px', color: '#b91c1c' }}>
+                    Rp {Number(selectedTransaction.totalFine || 0).toLocaleString('id-ID')}
+                  </strong>
+                  {selectedTransaction.problemSummary ? ` (${selectedTransaction.problemSummary})` : ''} yang belum dibayarkan.
                 </p>
-                <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
                   <button
                     type="button"
                     className="btn-primary"
+                    style={{ background: '#059669', borderColor: '#059669', fontWeight: 700 }}
+                    onClick={async () => {
+                      const fineAmt = Number(selectedTransaction.totalFine || 0);
+                      const name = selectedTransaction.student?.name || 'Peminjam';
+                      if (!confirm(`💳 KONFIRMASI PELUNASAN DENDA\n\nNama: ${name}\nTotal: Rp ${fineAmt.toLocaleString('id-ID')}\n\nApakah peminjam sudah melunasi pembayaran denda atau menyelesaikan ganti rugi buku?\n\nKlik OK untuk mengubah status menjadi Lunas.`)) return;
+                      try {
+                        await api.put(`/transactions/${selectedTransaction.id}/resolve-pending`, { action: 'paid' });
+                        alert('✅ Denda berhasil diselesaikan & ditandai Lunas!');
+                        setSelectedTransaction({ ...selectedTransaction, status: 'has_problem_resolved', paymentStatus: 'paid' });
+                        loadActiveTransactions();
+                      } catch (err) {
+                        alert('❌ Gagal menyelesaikan denda: ' + (err.response?.data?.message || err.message));
+                      }
+                    }}
+                  >
+                    💳 Tandai Denda Sudah Lunas
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
                     onClick={async () => {
                       try {
                         const res = await api.get(`/transactions/${selectedTransaction.id}/return-receipt`, {
@@ -559,7 +634,7 @@ export default function ReturnPage() {
                         setShowReceiptModal(true);
                       } catch (err) {
                         console.error('Receipt error:', err);
-                        alert('Gagal membuka struk. Silakan cek console untuk detail.');
+                        alert('Gagal membuka struk.');
                       }
                     }}
                   >
@@ -568,24 +643,110 @@ export default function ReturnPage() {
                   <button
                     type="button"
                     className="btn-secondary"
-                    onClick={() => {
-                      navigate('/app/transactions');
-                    }}
+                    onClick={() => navigate('/app/transactions')}
                   >
-                    📋 Lihat Detail Transaksi
+                    📋 Riwayat Transaksi
                   </button>
                 </div>
+              </div>
+            )}
+
+            {selectedTransaction.status === 'partially_returned' && (
+              <div style={{
+                marginTop: '16px',
+                padding: '16px',
+                background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
+                borderRadius: '12px',
+                border: '2px solid #fcd34d',
+                textAlign: 'center'
+              }}>
+                <div style={{ fontSize: '48px', marginBottom: '8px' }}>🔄</div>
+                <h4 style={{ margin: '0 0 8px 0', color: '#92400e', fontWeight: '700' }}>
+                  Sebagian Buku Sudah Dikembalikan
+                </h4>
+                <p style={{ margin: '0 0 16px 0', color: '#78350f', fontSize: '14px' }}>
+                  Beberapa buku telah dikembalikan sebelumnya. Silakan pilih dan proses pengembalian buku yang masih dipinjam di bawah ini.
+                </p>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Transaction Items - Only show if transaction is ongoing or has issues */}
+      {/* Transaction Items - Read-only display for returned transactions / has_problem_pending */}
+      {selectedTransaction &&
+        transactionItems.length > 0 &&
+        (selectedTransaction.status === 'has_problem_pending' ||
+          selectedTransaction.status === 'has_problem_resolved' ||
+          selectedTransaction.status === 'complete' ||
+          selectedTransaction.status === 'completed') && (
+          <div className="form-card">
+            <div className="form-card-header">
+              <span className="form-card-icon">📚</span>
+              <h3 className="form-card-title">
+                {selectedTransaction.status === 'has_problem_pending'
+                  ? 'Daftar Buku (Status: Menunggu Pembayaran Denda)'
+                  : 'Daftar Buku pada Transaksi Ini'}
+              </h3>
+            </div>
+            <div className="form-card-body">
+              <div className="items-list">
+                {transactionItems.map((item, idx) => {
+                  const conditionClass =
+                    item.condition === 'good'
+                      ? 'condition-good'
+                      : item.condition === 'damaged'
+                        ? 'condition-damaged'
+                        : 'condition-lost';
+                  const conditionText =
+                    item.condition === 'good'
+                      ? '✅ Kondisi Baik'
+                      : item.condition === 'damaged'
+                        ? '⚠️ Rusak'
+                        : item.condition === 'lost'
+                          ? '❌ Hilang'
+                          : '✅ Baik';
+                  const bookTitle = item.book?.title || item.title || 'Buku Perpustakaan';
+                  const bookAuthor = item.book?.author || item.author || '-';
+                  const itemCode = item.item?.uniqueCode || item.code || '-';
+                  const fine = Number(item.fine || 0);
+
+                  return (
+                    <div key={item.id || item.itemId || idx} className="item-card" style={{ cursor: 'default' }}>
+                      <div className="item-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span className="item-title" style={{ fontWeight: 700, fontSize: '15px', color: '#0f172a' }}>
+                          {bookTitle}
+                        </span>
+                        <span className={`condition-badge ${conditionClass}`} style={{ fontSize: '11px', padding: '4px 10px', borderRadius: '6px', fontWeight: 700 }}>
+                          {conditionText}
+                        </span>
+                      </div>
+                      <div className="item-meta" style={{ marginTop: '8px', display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '13px', color: '#475569' }}>
+                        <span><strong>Penulis:</strong> {bookAuthor}</span>
+                        <span><strong>Kode Item:</strong> {itemCode}</span>
+                        {fine > 0 && (
+                          <span style={{ color: '#dc2626', fontWeight: 700 }}>
+                            <strong>Denda:</strong> Rp {fine.toLocaleString('id-ID')}
+                          </span>
+                        )}
+                        {item.notes && (
+                          <span style={{ fontStyle: 'italic', color: '#64748b' }}>
+                            <strong>Catatan:</strong> {item.notes}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+      {/* Transaction Items - Only show if transaction is ongoing or partially returned */}
       {selectedTransaction &&
         transactionItems.length > 0 &&
         (selectedTransaction.status === 'ongoing' ||
-          selectedTransaction.status === 'pending_payment' ||
           selectedTransaction.status === 'partially_returned') && (
           <div className="form-card">
             <div className="form-card-header">
@@ -757,7 +918,8 @@ export default function ReturnPage() {
         </div>
       )}
 
-      {selectedTransaction && (
+      {selectedTransaction &&
+        (selectedTransaction.status === 'ongoing' || selectedTransaction.status === 'partially_returned') && (
         <button
           type="button"
           className="btn-submit"

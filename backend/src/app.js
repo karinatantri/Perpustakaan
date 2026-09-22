@@ -6,10 +6,14 @@ let app = express();
 try {
   const { configureCloudinary } = require('./cloudinary');
   const { getFirestore } = require('./firebase');
+  const { syncTeachers } = require('./utils/syncTeachers');
   
   dotenv.config();
   configureCloudinary();
   getFirestore(); // ensure initialized
+
+  // Auto-sync teacher accounts from users to member data
+  syncTeachers().catch(err => console.error('[APP INIT] syncTeachers failed:', err));
 
   // Security headers with Helmet
   try {
@@ -106,9 +110,7 @@ try {
         publicStats: '/api/public/stats',
         students: '/api/students',
         books: '/api/books',
-        items: '/api/items',
         transactions: '/api/transactions',
-        inventories: '/api/inventories',
         auth: '/api/auth',
         users: '/api/users'
       }
@@ -155,9 +157,7 @@ try {
   // Routers
   app.use('/api/students', require('./routes/students'));
   app.use('/api/books', require('./routes/books'));
-  app.use('/api/items', require('./routes/items'));
   app.use('/api/transactions', require('./routes/transactions'));
-  app.use('/api/inventories', require('./routes/inventories'));
   app.use('/api/settings', require('./routes/settings'));
   app.use('/api/auth', require('./routes/auth'));
   app.use('/api/users', require('./routes/users'));

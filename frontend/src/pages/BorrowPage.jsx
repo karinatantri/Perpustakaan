@@ -113,7 +113,7 @@ export default function BorrowPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedStudent) {
-      setMessage('Pilih siswa terlebih dahulu.');
+      setMessage('Pilih siswa atau guru peminjam terlebih dahulu.');
       return;
     }
     if (items.length === 0) {
@@ -178,14 +178,14 @@ export default function BorrowPage() {
         <div className="form-card">
           <div className="form-card-header">
             <span className="form-card-icon">👤</span>
-            <h3 className="form-card-title">Pilih Siswa</h3>
+            <h3 className="form-card-title">Pilih Peminjam (Siswa / Guru)</h3>
           </div>
           <div className="form-card-body">
             <label className="form-label">
-              Cari Siswa (NIS / Nama)
+              Cari Peminjam (NIS / NIP/NUPTK / Nama)
               <input
                 className="form-input"
-                placeholder="🔍 Ketik NIS atau nama siswa..."
+                placeholder="🔍 Ketik NIS, NIP/NUPTK, atau nama siswa/guru..."
                 value={studentQuery}
                 onChange={(e) => {
                   const v = e.target.value;
@@ -204,8 +204,25 @@ export default function BorrowPage() {
                     onClick={() => handleSelectStudent(s)}
                   >
                     <div>
-                      <strong>{s.name}</strong>
-                      <div className="dropdown-meta">{s.nis} • {s.class}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{
+                          fontSize: 11,
+                          padding: '2px 6px',
+                          borderRadius: 4,
+                          fontWeight: 700,
+                          background: s.role === 'teacher' ? '#eff6ff' : '#ecfdf5',
+                          color: s.role === 'teacher' ? '#1d4ed8' : '#047857'
+                        }}>
+                          {s.role === 'teacher' ? '👨‍🏫 Guru' : '🎓 Siswa'}
+                        </span>
+                        <strong>{s.name}</strong>
+                      </div>
+                      <div className="dropdown-meta">
+                        {s.role === 'teacher'
+                          ? `NIP/NUPTK: ${s.nis || '-'} • Mapel: ${s.major || 'Guru'}${s.class && s.class !== '-' ? ` • Wali: ${s.class}` : ''}`
+                          : `NIS: ${s.nis} • Kelas: ${s.class || '-'}`
+                        }
+                      </div>
                     </div>
                   </button>
                 ))}
@@ -215,9 +232,24 @@ export default function BorrowPage() {
               <div className="selected-student-card">
                 <div className="selected-student-icon">✓</div>
                 <div className="selected-student-info">
-                  <strong>{selectedStudent.name}</strong>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{
+                      fontSize: 11,
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      fontWeight: 700,
+                      background: selectedStudent.role === 'teacher' ? '#eff6ff' : '#ecfdf5',
+                      color: selectedStudent.role === 'teacher' ? '#1d4ed8' : '#047857'
+                    }}>
+                      {selectedStudent.role === 'teacher' ? '👨‍🏫 Guru' : '🎓 Siswa'}
+                    </span>
+                    <strong>{selectedStudent.name}</strong>
+                  </div>
                   <div className="selected-student-meta">
-                    NIS: {selectedStudent.nis} • {selectedStudent.class}
+                    {selectedStudent.role === 'teacher'
+                      ? `NIP/NUPTK: ${selectedStudent.nis} • ${selectedStudent.major || 'Guru'}${selectedStudent.class && selectedStudent.class !== '-' ? ` • Wali: ${selectedStudent.class}` : ''}`
+                      : `NIS: ${selectedStudent.nis} • Kelas: ${selectedStudent.class || '-'}`
+                    }
                   </div>
                 </div>
               </div>
@@ -537,5 +569,4 @@ export default function BorrowPage() {
     </div>
   );
 }
-
 

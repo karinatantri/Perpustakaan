@@ -60,8 +60,16 @@ const COMMON_CSS = `
 
 function generateBorrowReceiptHtml({ receiptNumber, student, borrowDate, dueDate, items, officerName, officerTitle, qrBase64 }) {
   const safeReceiptNumber = escapeHtml(receiptNumber);
+  const isTeacher = student?.role === 'teacher';
+  const memberLabel = isTeacher ? 'Nama Guru' : 'Nama Siswa';
+  const idLabel = isTeacher ? 'NIP/NUPTK / Jabatan' : 'NIS / Kelas';
+  const signLabel = isTeacher ? 'Guru Peminjam' : 'Siswa';
   const safeStudentName = student ? escapeHtml(student.name) : '-';
-  const safeStudentNis = student ? escapeHtml(student.nis || '-') + ' / ' + escapeHtml(student.class || '-') : '-';
+  const safeStudentNis = student
+    ? (isTeacher
+        ? `${escapeHtml(student.nis || '-')} / ${escapeHtml(student.major || student.class || 'Guru')}`
+        : `${escapeHtml(student.nis || '-')} / ${escapeHtml(student.class || '-')}`)
+    : '-';
   const safeOfficerName = escapeHtml(officerName || 'Petugas Perpustakaan');
   const safeOfficerTitle = escapeHtml(officerTitle || 'Petugas Perpustakaan');
 
@@ -89,8 +97,8 @@ function generateBorrowReceiptHtml({ receiptNumber, student, borrowDate, dueDate
     <div class="top-grid">
       <div class="meta">
         <div class="meta-row"><span class="meta-label">Nomor Struk</span><span class="meta-value">${safeReceiptNumber}</span></div>
-        <div class="meta-row"><span class="meta-label">Nama Siswa</span><span class="meta-value">${safeStudentName}</span></div>
-        <div class="meta-row"><span class="meta-label">NIS / Kelas</span><span class="meta-value">${safeStudentNis}</span></div>
+        <div class="meta-row"><span class="meta-label">${memberLabel}</span><span class="meta-value">${safeStudentName}</span></div>
+        <div class="meta-row"><span class="meta-label">${idLabel}</span><span class="meta-value">${safeStudentNis}</span></div>
         <div class="meta-row"><span class="meta-label">Tanggal Pinjam</span><span class="meta-value">${formattedBorrowDate}</span></div>
         <div class="meta-row"><span class="meta-label">Jatuh Tempo</span><span class="meta-value">${formattedDueDate}</span></div>
       </div>
@@ -123,7 +131,7 @@ function generateBorrowReceiptHtml({ receiptNumber, student, borrowDate, dueDate
     </div>
     <div class="sign-row">
       <div class="sign-box">
-        <span class="sign-label">Siswa</span>
+        <span class="sign-label">${signLabel}</span>
         <div class="sign-line">${safeStudentName}</div>
       </div>
       <div class="sign-box">
@@ -139,8 +147,15 @@ function generateBorrowReceiptHtml({ receiptNumber, student, borrowDate, dueDate
 
 function generateReturnReceiptHtml({ receiptNumber, student, borrowDate, returnDate, items, totalFine, paymentStatus, status, officerName, officerTitle, qrBase64 }) {
   const safeReceiptNumber = escapeHtml(receiptNumber);
+  const isTeacher = student?.role === 'teacher';
+  const memberLabel = isTeacher ? 'Nama Guru' : 'Nama Siswa';
+  const idLabel = isTeacher ? 'NIP/NUPTK / Jabatan' : 'NIS / Kelas';
   const safeStudentName = student ? escapeHtml(student.name) : '-';
-  const safeStudentNis = student ? escapeHtml(student.nis || '-') + ' / ' + escapeHtml(student.class || '-') : '-';
+  const safeStudentNis = student
+    ? (isTeacher
+        ? `${escapeHtml(student.nis || '-')} / ${escapeHtml(student.major || student.class || 'Guru')}`
+        : `${escapeHtml(student.nis || '-')} / ${escapeHtml(student.class || '-')}`)
+    : '-';
   const safeOfficerName = escapeHtml(officerName || 'Petugas Perpustakaan');
   const safeOfficerTitle = escapeHtml(officerTitle || 'Petugas Perpustakaan');
 
@@ -168,8 +183,8 @@ function generateReturnReceiptHtml({ receiptNumber, student, borrowDate, returnD
     <div class="top-grid">
       <div class="meta">
         <div class="meta-row"><span class="meta-label">Nomor Struk</span><span class="meta-value">${safeReceiptNumber}</span></div>
-        <div class="meta-row"><span class="meta-label">Nama Siswa</span><span class="meta-value">${safeStudentName}</span></div>
-        <div class="meta-row"><span class="meta-label">NIS / Kelas</span><span class="meta-value">${safeStudentNis}</span></div>
+        <div class="meta-row"><span class="meta-label">${memberLabel}</span><span class="meta-value">${safeStudentName}</span></div>
+        <div class="meta-row"><span class="meta-label">${idLabel}</span><span class="meta-value">${safeStudentNis}</span></div>
         <div class="meta-row"><span class="meta-label">Tanggal Pinjam</span><span class="meta-value">${formattedBorrowDate}</span></div>
         <div class="meta-row"><span class="meta-label">Tanggal Kembali</span><span class="meta-value">${formattedReturnDate}</span></div>
       </div>
@@ -205,7 +220,8 @@ function generateReturnReceiptHtml({ receiptNumber, student, borrowDate, returnD
       <div class="payment-status ${paymentStatus === 'paid' ? 'payment-paid' : 'payment-pending'}">
         Status Pembayaran: ${paymentStatus === 'paid' ? '✅ LUNAS' : '⏳ BELUM LUNAS'}
       </div>
-      ${status === 'has_problem_pending' ? '<div style="margin-top: 8px; padding: 6px; background: #fee2e2; border-radius: 4px; text-align: center; font-size: 10px; color: #991b1b; font-weight: 600;">⚠️ Transaksi Bermasalah - Menunggu Pembayaran Denda</div>' : ''}
+      ${status === 'has_problem_pending' ? '<div style="margin-top: 8px; padding: 8px; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; text-align: center; font-size: 11px; color: #991b1b; font-weight: 700;">⚠️ Buku Sudah Dikembalikan — Menunggu Pelunasan Denda / Ganti Rugi</div>' : ''}
+      ${status === 'has_problem_resolved' ? '<div style="margin-top: 8px; padding: 8px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 6px; text-align: center; font-size: 11px; color: #166534; font-weight: 700;">✅ Denda / Ganti Rugi Telah Lunas</div>' : ''}
     </div>
     <div class="sign-row">
       <div class="sign-box"><span class="sign-label">Siswa</span><div class="sign-line">${safeStudentName}</div></div>

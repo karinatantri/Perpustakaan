@@ -134,20 +134,19 @@ export default function QrScanner({ onResult, onClose }) {
           return { width: size, height: size };
         },
         disableFlip: false,
-        aspectRatio: 1.0,
+        // Use ideal dimensions only; low-resolution webcams may reject hard minimums.
         videoConstraints: {
-          ...(cameraId ? { deviceId: { exact: cameraId } } : { facingMode: 'environment' }),
-          width: { ideal: 1280, min: 720 },
-          height: { ideal: 720, min: 480 }
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
         },
         showTorchButtonIfSupported: true,
         showZoomSliderIfSupported: true
       };
 
-      await scanner.start(
-        cameraId ? { deviceId: { exact: cameraId } } : { facingMode: 'environment' },
-        config,
-        (decodedText) => {
+      const cameraConfig = cameraId
+        ? { deviceId: { exact: cameraId } }
+        : { facingMode: 'environment' };
+      const handleDecodedText = (decodedText) => {
           if (!decodedText) return;
           // Gunakan hasil normalisasi; jika kosong fallback ke raw text supaya tidak menolak kode yang sah.
           const normalized = normalizeScannedText(decodedText);
@@ -157,8 +156,8 @@ export default function QrScanner({ onResult, onClose }) {
           scanConsumedRef.current = true;
           setScanStatus(`✅ QR terbaca: ${finalCode}`);
           onResult?.(finalCode);
-        },
-        (errMsg, errObj) => {
+      };
+      const handleScanError = (errMsg, errObj) => {
           const benign =
             errMsg.includes('NotFound') ||
             errMsg.includes('QR code parse error') ||
@@ -169,8 +168,15 @@ export default function QrScanner({ onResult, onClose }) {
             setLastError(errMsg);
             if (errMsg.includes('NotAllowed')) setScanStatus('❌ Izin kamera ditolak');
           }
-        }
-      );
+      };
+
+      try {
+        await scanner.start(cameraConfig, config, handleDecodedText, handleScanError);
+      } catch (err) {
+        // Retry without optional resolution constraints on strict camera drivers.
+        if (err?.name !== 'OverconstrainedError') throw err;
+        await scanner.start(cameraConfig, { fps: 10, qrbox: config.qrbox, disableFlip: false }, handleDecodedText, handleScanError);
+      }
 
       // Fallback: capture frame dan decode dengan jsQR setiap 300ms jika html5-qrcode belum menemukan apa pun
       const ensureCanvas = () => {

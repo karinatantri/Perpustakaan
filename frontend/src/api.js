@@ -14,19 +14,28 @@ function resolveApiBase() {
     return 'http://10.0.2.2:4000/api';
   }
 
-  // Jika ini mode dev, atau env var dikosongkan, lebih aman gunakan path relatif '/api'
-  // Di dev mode (lokal), Vite proxy sudah diatur untuk merutekan '/api' ke backend localhost:4000
-  // Di production (Vercel), vercel.json juga merutekan '/api' ke backend
+  // Jika di browser (dev mode atau production):
+  // Bila diakses dari device lain di LAN (misal: HP via https://192.168.x.x:5173),
+  // memanggil http://localhost:4000/api akan gagal total karena:
+  // 1. Mixed Content (HTTPS memanggil HTTP diblokir browser HP)
+  // 2. 'localhost' di browser HP mengarah ke HP itu sendiri, bukan ke PC!
+  // Maka untuk semua akses LAN (bukan localhost/127.0.0.1), gunakan path relatif '/api'
+  // yang otomatis diproxy oleh Vite ke backend komputer di http://localhost:4000
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host !== 'localhost' && host !== '127.0.0.1') {
+      return '/api';
+    }
+  }
+
   if (import.meta.env.PROD) {
     if (fromEnv && !fromEnv.includes('localhost')) {
       return fromEnv;
     }
-    // Jika tidak ada env var, ATAU env var lupa diganti dari localhost saat deploy, 
-    // paksa kembali ke relatif url.
     return '/api';
   }
 
-  // Developer mode
+  // Developer mode on localhost: gunakan /api (via Vite proxy) atau env
   return fromEnv || '/api';
 }
 

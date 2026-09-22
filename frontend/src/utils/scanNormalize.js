@@ -10,7 +10,8 @@ export function normalizeScannedText(raw) {
 
   if (!s) return '';
 
-  const txMatch = s.match(/TX-\d{10,20}/i);
+  // Keep full receipt format with optional suffixes, e.g. TX-1788002694178-2 or TX-1788002694328-3.
+  const txMatch = s.match(/TX-[A-Za-z0-9_-]+/i);
   if (txMatch) {
     return txMatch[0].toUpperCase();
   }
@@ -19,11 +20,11 @@ export function normalizeScannedText(raw) {
     if (/^https?:\/\//i.test(s)) {
       const u = new URL(s);
       const pathLast = u.pathname.split('/').filter(Boolean).pop() || '';
-      const fromPath = pathLast.match(/TX-\d{10,20}/i);
+      const fromPath = pathLast.match(/TX-[A-Za-z0-9_-]+/i);
       if (fromPath) return fromPath[0].toUpperCase();
       const q = u.searchParams.get('id') || u.searchParams.get('receipt') || u.searchParams.get('code');
       if (q) {
-        const fromQ = String(q).match(/TX-\d{10,20}/i);
+        const fromQ = String(q).match(/TX-[A-Za-z0-9_-]+/i);
         if (fromQ) return fromQ[0].toUpperCase();
       }
     }
@@ -37,5 +38,5 @@ export function normalizeScannedText(raw) {
 /** True jika teks normalisasi berupa nomor struk peminjaman (QR struk TX-...). */
 export function isReceiptNumber(code) {
   const s = String(code || '').trim();
-  return /^TX-\d{10,20}$/i.test(s);
+  return /^TX-[A-Za-z0-9_-]+$/i.test(s);
 }

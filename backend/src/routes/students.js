@@ -26,113 +26,153 @@ const upload = multer({
   }
 });
 
+const { syncTeachers } = require('../utils/syncTeachers');
+
 // List with optional filters
 router.get('/', auth(['admin', 'officer', 'teacher', 'principal']), async (req, res) => {
   try {
     const user = req.user || {};
+    const { class: className, role: filterRole } = req.query;
     let query = collection;
 
-    if (user.role === 'teacher') {
+    if (user.role === 'teacher' && !filterRole) {
       const homeroom = user.homeroomClass;
       if (!homeroom) {
-        return res.json([]); // Regular teacher has no access to student list
+        // Return only teacher records or empty student list
+        query = query.where('role', '==', 'teacher');
+      } else {
+        query = query.where('class', '==', homeroom);
       }
-      query = query.where('class', '==', homeroom);
     } else {
-      const { class: className } = req.query;
       if (className) {
         query = query.where('class', '==', className);
       }
     }
 
     const snap = await query.get();
-    const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    let data = snap.docs.map((d) => {
+      const dData = d.data();
+      return {
+        id: d.id,
+        role: dData.role || 'student',
+        ...dData
+      };
+    });
+
+    if (filterRole === 'teacher') {
+      data = data.filter((m) => m.role === 'teacher');
+    } else if (filterRole === 'student') {
+      data = data.filter((m) => m.role !== 'teacher');
+    }
+
     res.json(data);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Failed to fetch students' });
+    res.status(500).json({ message: 'Failed to fetch members' });
   }
 });
 
-// Autocomplete search
+// Autocomplete search (searches both students and teachers)
 router.get('/search', auth(['admin', 'officer', 'teacher', 'principal']), async (req, res) => {
   try {
-    const { q } = req.query;
+    const { q, role: filterRole } = req.query;
     if (!q) return res.json([]);
 
-    const user = req.user || {};
-    let query = collection;
+    const snap = await collection.get();
+    const qLower = q.toLowerCase();
+    let data = snap.docs
+      .map((d) => {
+        const dData = d.data();
+        return {
+          id: d.id,
+          role: dData.role || 'student',
+          ...dData
+        };
+      })
+      .filter((member) => {
+        const name = (member.name || '').toLowerCase();
+        const nis = (member.nis || '').toLowerCase();
+        return name.includes(qLower) || nis.includes(qLower);
+      });
 
-    if (user.role === 'teacher') {
-      const homeroom = user.homeroomClass;
-      if (!homeroom) {
-        return res.json([]);
-      }
-      query = query.where('class', '==', homeroom);
+    if (filterRole === 'teacher') {
+      data = data.filter((m) => m.role === 'teacher');
+    } else if (filterRole === 'student') {
+      data = data.filter((m) => m.role !== 'teacher');
     }
 
-    const snap = await query.get();
-    const qLower = q.toLowerCase();
-    const data = snap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
-      .filter((student) => {
-        const name = (student.name || '').toLowerCase();
-        const nis = (student.nis || '').toLowerCase();
-        return name.includes(qLower) || nis.includes(qLower);
-      })
-      .slice(0, 10);
-
-    res.json(data);
+    res.json(data.slice(0, 10));
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Failed to search students' });
+    res.status(500).json({ message: 'Failed to search members' });
   }
 });
 
-// Create
+// Create member (student or teacher) and automatically create user login account
 router.post('/', auth(['admin', 'officer']), async (req, res) => {
   try {
-    const { nis, name, class: className, major } = req.body;
+    const { nis, name, class: className, major, role = 'student', phone, email } = req.body;
     if (!nis || !name) {
-      return res.status(400).json({ message: 'nis and name are required' });
+      return res.status(400).json({ message: 'NIS / NIP / NUPTK dan nama wajib diisi' });
     }
+
+    const memberRole = role === 'teacher' ? 'teacher' : 'student';
+
+    // Check duplicate in students
+    const dupMember = await collection.where('nis', '==', nis).limit(1).get();
+    if (!dupMember.empty) {
+      return res.status(400).json({ message: `NIS / NIP / NUPTK "${nis}" sudah terdaftar.` });
+    }
+
+    // Check duplicate in users
+    const usersCol = db.collection('users');
+    const dupUser = await usersCol.where('username', '==', nis).limit(1).get();
+    if (!dupUser.empty) {
+      return res.status(400).json({ message: `Username akun "${nis}" sudah digunakan.` });
+    }
+
     const now = new Date().toISOString();
     const docRef = await collection.add({
       nis,
       name,
-      class: className || '',
-      major: major || '',
+      class: className || '-',
+      major: major || (memberRole === 'teacher' ? 'Guru' : '-'),
+      role: memberRole,
+      phone: phone || '-',
+      email: email || '-',
       status: 'active',
       createdAt: now,
       updatedAt: now
     });
 
-    // Automatically create a user account for the student
+    // Automatically create a user account for the member (student or teacher)
     const passwordHash = await bcrypt.hash('password123', 10);
-    const usersCol = db.collection('users');
-    await usersCol.add({
+    const userDocRef = await usersCol.add({
       username: nis,
       passwordHash,
-      role: 'student',
+      role: memberRole,
       name: name,
       studentId: docRef.id,
+      homeroomClass: (memberRole === 'teacher' && className && className !== '-') ? className : null,
       createdAt: now,
       updatedAt: now
     });
 
+    console.log(`[CREATE MEMBER] Created member ${docRef.id} with user account ${userDocRef.id} (role: ${memberRole})`);
+
     const doc = await docRef.get();
-    res.status(201).json({ id: doc.id, ...doc.data() });
+    res.status(201).json({ id: doc.id, role: memberRole, ...doc.data() });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Failed to create student' });
+    res.status(500).json({ message: 'Gagal membuat data anggota: ' + err.message });
   }
 });
 
-// Update (whitelist fields to prevent mass assignment)
+// Update (whitelist fields and sync to user account)
 router.put('/:id', auth(['admin', 'officer']), async (req, res) => {
   try {
     const { id } = req.params;
-    const { nis, name, class: className, major, birthDate, address, email, phone, status } = req.body;
+    const { nis, name, class: className, major, birthDate, address, email, phone, status, role } = req.body;
     const updates = {};
     if (nis !== undefined) updates.nis = nis;
     if (name !== undefined) updates.name = name;
@@ -143,36 +183,76 @@ router.put('/:id', auth(['admin', 'officer']), async (req, res) => {
     if (email !== undefined) updates.email = email;
     if (phone !== undefined) updates.phone = phone;
     if (status !== undefined) updates.status = status;
+    if (role !== undefined) updates.role = role;
+
     if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ message: 'No valid fields to update' });
+      return res.status(400).json({ message: 'Tidak ada perubahan data' });
     }
     const now = new Date().toISOString();
     updates.updatedAt = now;
     const docRef = collection.doc(id);
     const existing = await docRef.get();
-    if (!existing.exists) return res.status(404).json({ message: 'Student not found' });
+    if (!existing.exists) return res.status(404).json({ message: 'Anggota tidak ditemukan' });
+
     await docRef.update(updates);
+
+    // Sync changes to user account if associated
+    try {
+      const usersCol = db.collection('users');
+      const userSnap = await usersCol.where('studentId', '==', id).limit(1).get();
+      if (!userSnap.empty) {
+        const userUpdates = { updatedAt: now };
+        if (name !== undefined) userUpdates.name = name;
+        if (nis !== undefined) userUpdates.username = nis;
+        if (className !== undefined) {
+          userUpdates.homeroomClass = (className && className !== '-') ? className : null;
+        }
+        await userSnap.docs[0].ref.update(userUpdates);
+      }
+    } catch (syncErr) {
+      console.warn('Failed to sync update to users collection:', syncErr);
+    }
+
     const doc = await docRef.get();
     res.json({ id: doc.id, ...doc.data() });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Failed to update student' });
+    res.status(500).json({ message: 'Gagal memperbarui data: ' + err.message });
   }
 });
 
-// Delete (hard delete)
+// Delete (hard delete member and cascade to user account)
 router.delete('/:id', auth(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
     const doc = await collection.doc(id).get();
     if (!doc.exists) {
-      return res.status(404).json({ message: 'Student not found' });
+      return res.status(404).json({ message: 'Anggota tidak ditemukan' });
     }
-    await collection.doc(id).delete();
-    res.json({ message: 'Student deleted successfully' });
+
+    // Delete associated user account
+    const usersCol = db.collection('users');
+    const userSnap = await usersCol.where('studentId', '==', id).get();
+    const batch = db.batch();
+    userSnap.docs.forEach((uDoc) => batch.delete(uDoc.ref));
+    batch.delete(collection.doc(id));
+    await batch.commit();
+
+    res.json({ message: 'Anggota dan akun terkait berhasil dihapus' });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Failed to delete student' });
+    res.status(500).json({ message: 'Gagal menghapus data: ' + err.message });
+  }
+});
+
+// Manual trigger for teacher sync
+router.post('/sync-teachers', auth(['admin']), async (req, res) => {
+  try {
+    const result = await syncTeachers();
+    res.json({ message: 'Sinkronisasi akun guru berhasil', ...result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Gagal menyinkronkan data guru: ' + err.message });
   }
 });
 
@@ -299,6 +379,59 @@ router.post('/import', auth(['admin', 'officer']), upload.single('file'), async 
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to import students' });
+  }
+});
+
+// Reset password of student/teacher to default 'password123'
+router.post('/:id/reset-password', auth(['admin', 'officer']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const memberDoc = await collection.doc(id).get();
+    if (!memberDoc.exists) {
+      return res.status(404).json({ message: 'Data anggota tidak ditemukan' });
+    }
+    const memberData = memberDoc.data();
+    const nis = memberData.nis;
+
+    const usersCol = db.collection('users');
+    let userDocRef = null;
+    let userSnap = await usersCol.where('studentId', '==', id).limit(1).get();
+    if (!userSnap.empty) {
+      userDocRef = userSnap.docs[0].ref;
+    } else if (nis) {
+      userSnap = await usersCol.where('username', '==', nis).limit(1).get();
+      if (!userSnap.empty) {
+        userDocRef = userSnap.docs[0].ref;
+      }
+    }
+
+    const passwordHash = await bcrypt.hash('password123', 10);
+    const now = new Date().toISOString();
+
+    if (userDocRef) {
+      await userDocRef.update({
+        passwordHash,
+        updatedAt: now
+      });
+    } else {
+      await usersCol.add({
+        username: nis,
+        passwordHash,
+        role: memberData.role || 'student',
+        name: memberData.name || '',
+        studentId: id,
+        homeroomClass: memberData.class && memberData.class !== '-' ? memberData.class : null,
+        createdAt: now,
+        updatedAt: now
+      });
+    }
+
+    res.json({
+      message: `Kata sandi akun @${nis} berhasil direset ke password default ("password123").`
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Gagal mereset kata sandi: ' + err.message });
   }
 });
 

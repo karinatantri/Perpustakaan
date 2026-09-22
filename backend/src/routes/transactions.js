@@ -25,6 +25,75 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+function extractProblemInfo(tx, itemsSnap) {
+  let computedTotalFine = Number(tx.totalFine) || 0;
+  const itemProblems = [];
+
+  if (itemsSnap && itemsSnap.docs) {
+    itemsSnap.docs.forEach((iDoc) => {
+      const item = iDoc.data();
+      const fine = Number(item.fine) || 0;
+      if (!tx.totalFine && fine > 0) {
+        computedTotalFine += fine;
+      }
+      if (item.condition === 'lost') {
+        itemProblems.push('Buku Hilang');
+      } else if (item.condition === 'damaged') {
+        itemProblems.push('Buku Rusak');
+      } else if (fine > 0) {
+        itemProblems.push('Terlambat');
+      }
+    });
+  }
+
+  let problemSummary = Array.from(new Set(itemProblems)).join(', ');
+  if (!problemSummary && tx.status === 'has_problem_pending') {
+    problemSummary = 'Denda Belum Lunas';
+  }
+
+  return {
+    totalFine: computedTotalFine,
+    problemSummary: problemSummary || null
+  };
+}
+
+async function getTransactionItemsWithBooks(transactionId) {
+  const txItemsSnap = await txItemsCol.where('transactionId', '==', transactionId).get();
+  const txItems = txItemsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+  const itemDocs = txItems.length > 0
+    ? await Promise.all(txItems.map((txItem) => itemsCol.doc(txItem.itemId).get()))
+    : [];
+  const itemsMap = {};
+  itemDocs.forEach((doc) => {
+    if (doc.exists) itemsMap[doc.id] = { id: doc.id, ...doc.data() };
+  });
+
+  const bookIds = [...new Set(Object.values(itemsMap).map((item) => item.bookId).filter(Boolean))];
+  const bookDocs = bookIds.length > 0
+    ? await Promise.all(bookIds.map((bookId) => booksCol.doc(bookId).get()))
+    : [];
+  const booksMap = {};
+  bookDocs.forEach((doc) => {
+    if (doc.exists) booksMap[doc.id] = { id: doc.id, ...doc.data() };
+  });
+
+  const items = txItems.map((txItem) => {
+    const item = itemsMap[txItem.itemId] || {};
+    return {
+      id: txItem.id,
+      itemId: txItem.itemId,
+      condition: txItem.condition || 'good',
+      fine: Number(txItem.fine) || 0,
+      notes: txItem.notes || '',
+      item,
+      book: item.bookId ? booksMap[item.bookId] || null : null
+    };
+  });
+
+  return { txItemsSnap, items };
+}
+
 // Borrow items
 router.post('/borrow', auth(['admin', 'officer']), async (req, res) => {
   try {
@@ -444,8 +513,10 @@ router.put('/:id/resolve-pending', auth(['admin', 'officer']), async (req, res) 
 
     for (const doc of txItemsSnap.docs) {
       const txItem = doc.data();
-      if (txItem.paymentStatus === 'pending' && (txItem.condition === 'lost' || txItem.condition === 'damaged')) {
-        if (action === 'replaced') {
+      const fineVal = Number(txItem.fine) || 0;
+      const isIssue = fineVal > 0 || txItem.condition === 'lost' || txItem.condition === 'damaged' || txItem.paymentStatus === 'pending';
+      if (isIssue) {
+        if (action === 'replaced' && (txItem.condition === 'lost' || txItem.condition === 'damaged')) {
           // If replaced, mark item as available (new book)
           batch.update(itemsCol.doc(txItem.itemId), {
             status: 'available',
@@ -490,23 +561,31 @@ router.get('/', auth(['admin', 'officer', 'teacher', 'student', 'principal']), a
 
     if (user.role === 'teacher') {
       const homeroom = user.homeroomClass;
-      if (!homeroom) {
-        return res.json([]); // Regular teacher has no access to student transactions
+      const teacherMemberId = user.studentId;
+      const { filterType } = req.query; // 'self' | 'class' | undefined
+
+      const targetStudentIds = new Set();
+      if (filterType !== 'class' && teacherMemberId) {
+        targetStudentIds.add(teacherMemberId);
       }
-      
-      // Fetch all student IDs in this class
-      const studentsSnap = await studentsCol.where('class', '==', homeroom).get();
-      const studentIds = new Set(studentsSnap.docs.map(doc => doc.id));
-      if (studentIds.size === 0) {
+
+      let homeroomStudentsDocs = [];
+      if (filterType !== 'self' && homeroom) {
+        const studentsSnap = await studentsCol.where('class', '==', homeroom).get();
+        homeroomStudentsDocs = studentsSnap.docs;
+        homeroomStudentsDocs.forEach(d => targetStudentIds.add(d.id));
+      }
+
+      if (targetStudentIds.size === 0) {
         return res.json([]);
       }
-      
-      // Fetch recent transactions and filter in-memory to avoid fetching the entire database
+
+      // Fetch recent transactions and filter in-memory
       const snap = await transactionsCol.orderBy('borrowDate', 'desc').limit(300).get();
       const filteredTxs = [];
       for (const doc of snap.docs) {
         const tx = doc.data();
-        if (studentIds.has(tx.studentId)) {
+        if (targetStudentIds.has(tx.studentId)) {
           filteredTxs.push({ doc, tx });
         }
       }
@@ -514,16 +593,36 @@ router.get('/', auth(['admin', 'officer', 'teacher', 'student', 'principal']), a
       // Slice to top 50
       const slicedTxs = filteredTxs.slice(0, 50);
 
-      // Fetch transaction items in parallel
+      // Fetch transaction items and member data in parallel
       const data = await Promise.all(slicedTxs.map(async ({ doc, tx }) => {
-        const studentDoc = studentsSnap.docs.find(d => d.id === tx.studentId);
-        const s = studentDoc ? studentDoc.data() : null;
-        const student = s ? { id: studentDoc.id, name: s.name, nis: s.nis || '' } : null;
+        let student = null;
+        if (tx.studentId === teacherMemberId) {
+          const tDoc = await studentsCol.doc(tx.studentId).get();
+          if (tDoc.exists) {
+            const tData = tDoc.data();
+            student = { id: tDoc.id, name: tData.name, nis: tData.nis || '', role: 'teacher' };
+          }
+        } else {
+          const studentDoc = homeroomStudentsDocs.find(d => d.id === tx.studentId);
+          if (studentDoc) {
+            const s = studentDoc.data();
+            student = { id: studentDoc.id, name: s.name, nis: s.nis || '', role: s.role || 'student' };
+          } else if (tx.studentId) {
+            const sDoc = await studentsCol.doc(tx.studentId).get();
+            if (sDoc.exists) {
+              const s = sDoc.data();
+              student = { id: sDoc.id, name: s.name, nis: s.nis || '', role: s.role || 'student' };
+            }
+          }
+        }
         
         const itemsSnap = await txItemsCol.where('transactionId', '==', doc.id).get();
+        const problemInfo = extractProblemInfo(tx, itemsSnap);
         return {
           id: doc.id,
           ...tx,
+          totalFine: problemInfo.totalFine,
+          problemSummary: problemInfo.problemSummary,
           student,
           itemCount: itemsSnap.size
         };
@@ -580,12 +679,15 @@ router.get('/', auth(['admin', 'officer', 'teacher', 'student', 'principal']), a
       let student = null;
       if (studentDoc && studentDoc.exists) {
         const s = studentDoc.data();
-        student = { id: studentDoc.id, name: s.name, nis: s.nis || '' };
+        student = { id: studentDoc.id, name: s.name, nis: s.nis || '', role: s.role || 'student' };
       }
 
+      const problemInfo = extractProblemInfo(tx, itemsSnap);
       return {
         id: doc.id,
         ...tx,
+        totalFine: problemInfo.totalFine,
+        problemSummary: problemInfo.problemSummary,
         student,
         itemCount: itemsSnap.size
       };
@@ -683,11 +785,43 @@ router.get('/search-by-student', auth(['admin', 'officer']), async (req, res) =>
 // Get transaction by receipt number
 router.get('/by-receipt/:receiptNumber', auth(['admin', 'officer']), async (req, res) => {
   try {
-    const { receiptNumber } = req.params;
-    const snap = await transactionsCol
+    const receiptNumber = String(req.params.receiptNumber || '').trim();
+    if (!receiptNumber) {
+      return res.status(400).json({ message: 'Receipt number is required' });
+    }
+
+    // Older records may have stored the QR value as `barcode` instead of
+    // `receiptNumber`; keep both formats readable during migration.
+    let snap = await transactionsCol
       .where('receiptNumber', '==', receiptNumber)
       .limit(1)
       .get();
+    if (snap.empty) {
+      snap = await transactionsCol
+        .where('barcode', '==', receiptNumber)
+        .limit(1)
+        .get();
+    }
+
+    // Some old QR receipts used the Firestore transaction id as their value.
+    if (snap.empty) {
+      const byId = await transactionsCol.doc(receiptNumber).get();
+      if (byId.exists) {
+        snap = { docs: [byId], empty: false };
+      }
+    }
+
+    // Fallback prefix query for receipt numbers with suffixes (e.g. TX-1788002694178 matching TX-1788002694178-2)
+    if (snap.empty) {
+      const prefixSnap = await transactionsCol
+        .where('receiptNumber', '>=', receiptNumber)
+        .where('receiptNumber', '<=', receiptNumber + '\uf8ff')
+        .limit(1)
+        .get();
+      if (!prefixSnap.empty) {
+        snap = prefixSnap;
+      }
+    }
     
     if (snap.empty) {
       return res.status(404).json({ message: 'Transaction not found' });
@@ -705,9 +839,16 @@ router.get('/by-receipt/:receiptNumber', auth(['admin', 'officer']), async (req,
       }
     }
 
+    const { txItemsSnap, items } = await getTransactionItemsWithBooks(doc.id);
+    const problemInfo = extractProblemInfo(tx, txItemsSnap);
+
     res.json({
       id: doc.id,
       ...tx,
+      totalFine: problemInfo.totalFine,
+      problemSummary: problemInfo.problemSummary,
+      itemCount: txItemsSnap.size,
+      items,
       student
     });
   } catch (err) {
@@ -742,6 +883,9 @@ router.get('/stats', auth(['admin', 'officer', 'teacher', 'student', 'principal'
     let teacherStudentIds = new Set();
 
     if (user.role === 'teacher') {
+      if (user.studentId) {
+        teacherStudentIds.add(user.studentId);
+      }
       const homeroom = user.homeroomClass;
       if (homeroom) {
         const studentsSnap = await studentsCol.where('class', '==', homeroom).get();
@@ -808,9 +952,12 @@ router.get('/stats', auth(['admin', 'officer', 'teacher', 'student', 'principal'
         student = { id: studentDoc.id, name: s.name, nis: s.nis || '' };
       }
 
+      const problemInfo = extractProblemInfo(tx, itemsSnap);
       return {
         id,
         ...tx,
+        totalFine: problemInfo.totalFine,
+        problemSummary: problemInfo.problemSummary,
         student,
         itemCount: itemsSnap.size
       };
@@ -1225,8 +1372,8 @@ router.get('/:id/return-receipt', auth(['admin', 'officer', 'teacher', 'student'
       <div class="payment-status ${paymentStatus === 'paid' ? 'payment-paid' : 'payment-pending'}">
         Status Pembayaran: ${paymentStatus === 'paid' ? '✅ LUNAS' : '⏳ BELUM LUNAS'}
       </div>
-      ${status === 'has_problem_pending' ? '<div style="margin-top: 8px; padding: 8px; background: #fee2e2; border-radius: 4px; text-align: center; font-size: 11px; color: #991b1b; font-weight: 600;">⚠️ Transaksi Bermasalah - Menunggu Pembayaran Denda</div>' : ''}
-      ${status === 'has_problem_resolved' ? '<div style="margin-top: 8px; padding: 8px; background: #d1fae5; border-radius: 4px; text-align: center; font-size: 11px; color: #065f46; font-weight: 600;">✅ Transaksi Bermasalah - Sudah Diselesaikan</div>' : ''}
+      ${status === 'has_problem_pending' ? '<div style="margin-top: 8px; padding: 8px; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; text-align: center; font-size: 11px; color: #991b1b; font-weight: 700;">⚠️ Buku Sudah Dikembalikan — Menunggu Pelunasan Denda / Ganti Rugi</div>' : ''}
+      ${status === 'has_problem_resolved' ? '<div style="margin-top: 8px; padding: 8px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 6px; text-align: center; font-size: 11px; color: #166534; font-weight: 700;">✅ Denda / Ganti Rugi Telah Lunas</div>' : ''}
     </div>
     <div class="sign-row">
       <div class="sign-box">
@@ -1734,8 +1881,8 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'teacher', 'student', 'prin
       <div class="payment-status ${paymentStatus === 'paid' ? 'payment-paid' : 'payment-pending'}">
         Status Pembayaran: ${paymentStatus === 'paid' ? '✅ LUNAS' : '⏳ BELUM LUNAS'}
       </div>
-      ${status === 'has_problem_pending' ? '<div style="margin-top: 8px; padding: 8px; background: #fee2e2; border-radius: 4px; text-align: center; font-size: 11px; color: #991b1b; font-weight: 600;">⚠️ Transaksi Bermasalah - Menunggu Pembayaran Denda</div>' : ''}
-      ${status === 'has_problem_resolved' ? '<div style="margin-top: 8px; padding: 8px; background: #d1fae5; border-radius: 4px; text-align: center; font-size: 11px; color: #065f46; font-weight: 600;">✅ Transaksi Bermasalah - Sudah Diselesaikan</div>' : ''}
+      ${status === 'has_problem_pending' ? '<div style="margin-top: 8px; padding: 8px; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; text-align: center; font-size: 11px; color: #991b1b; font-weight: 700;">⚠️ Buku Sudah Dikembalikan — Menunggu Pelunasan Denda / Ganti Rugi</div>' : ''}
+      ${status === 'has_problem_resolved' ? '<div style="margin-top: 8px; padding: 8px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 6px; text-align: center; font-size: 11px; color: #166534; font-weight: 700;">✅ Denda / Ganti Rugi Telah Lunas</div>' : ''}
     </div>
     <div class="sign-row">
       <div class="sign-box">
@@ -2168,4 +2315,3 @@ router.get('/export', auth(['admin', 'officer', 'principal']), async (req, res) 
 });
 
 module.exports = router;
-

@@ -21,33 +21,44 @@ async function generateAndUploadQR(text, folder = 'library-qrcodes') {
       width: 360
     });
 
-    // Convert data URL to buffer
-    const base64Data = qrDataUrl.replace(/^data:image\/\w+;base64,/, '');
-    const buffer = Buffer.from(base64Data, 'base64');
+    // Try Cloudinary upload if configured
+    try {
+      if (cloudinary && cloudinary.config().cloud_name) {
+        const base64Data = qrDataUrl.replace(/^data:image\/\w+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
 
-    // Upload to Cloudinary
-    return new Promise((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        {
-          folder,
-          resource_type: 'image',
-          format: 'png',
-          public_id: `qr_${Date.now()}_${Math.random().toString(36).substring(7)}`
-        },
-        (error, result) => {
-          if (error) {
-            reject(error);
-          } else {
-            resolve({
-              url: result.secure_url,
-              publicId: result.public_id
-            });
-          }
+        const uploadResult = await new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            {
+              folder,
+              resource_type: 'image',
+              format: 'png',
+              public_id: `qr_${Date.now()}_${Math.random().toString(36).substring(7)}`
+            },
+            (error, result) => {
+              if (error) reject(error);
+              else resolve(result);
+            }
+          );
+          uploadStream.end(buffer);
+        });
+
+        if (uploadResult && uploadResult.secure_url) {
+          return {
+            url: uploadResult.secure_url,
+            publicId: uploadResult.public_id
+          };
         }
-      );
+      }
+    } catch (uploadErr) {
+      console.warn('Cloudinary upload failed or unconfigured, falling back to data URL QR:', uploadErr.message);
+    }
 
-      uploadStream.end(buffer);
-    });
+    // Reliable fallback: return data URL directly so QR code is always available
+    return {
+      url: qrDataUrl,
+      publicId: null
+    };
   } catch (err) {
     console.error('Error generating QR code:', err);
     throw err;
@@ -57,4 +68,3 @@ async function generateAndUploadQR(text, folder = 'library-qrcodes') {
 module.exports = {
   generateAndUploadQR
 };
-

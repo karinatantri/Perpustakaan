@@ -133,6 +133,31 @@ router.get('/by-code/:code', auth(['admin', 'officer', 'teacher', 'student', 'pr
   }
 });
 
+// Get or auto-generate QR code for a book
+router.get('/:id/qr-code', auth(['admin', 'officer', 'teacher', 'student', 'principal']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const bookDoc = await booksCol.doc(id).get();
+    if (!bookDoc.exists) return res.status(404).json({ message: 'Buku tidak ditemukan' });
+
+    const data = bookDoc.data();
+    if (data.qrCodeUrl) {
+      return res.json({ qrCodeUrl: data.qrCodeUrl });
+    }
+
+    const qrResult = await generateAndUploadQR(id);
+    await booksCol.doc(id).update({
+      qrCodeUrl: qrResult.url,
+      updatedAt: new Date().toISOString()
+    });
+
+    res.json({ qrCodeUrl: qrResult.url });
+  } catch (err) {
+    console.error('Failed to get or generate QR code for book:', err);
+    res.status(500).json({ message: 'Gagal membuat QR code buku' });
+  }
+});
+
 // Create book (auto-generate items if copies > 0)
 router.post('/', auth(['admin', 'officer']), async (req, res) => {
   try {

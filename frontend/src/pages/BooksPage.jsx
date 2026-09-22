@@ -1,15 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useSearchParams } from 'react-router-dom';
 import api from '../api.js';
 import { downloadOrShareImage } from '../utils/downloadHelper.js';
-import InventoriesPage from './InventoriesPage.jsx';
 
 export default function BooksPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = searchParams.get('tab') === 'inventories' ? 'inventories' : 'books';
-  const [activeTab, setActiveTab] = useState(initialTab);
-
   const userStr = localStorage.getItem('user');
   let userRole = 'student';
   if (userStr) {
@@ -18,11 +12,6 @@ export default function BooksPage() {
     } catch (_) {}
   }
   const isStaff = userRole === 'admin' || userRole === 'officer';
-
-  const handleTabChange = (tab) => {
-    setActiveTab(tab);
-    setSearchParams({ tab });
-  };
 
   const [books, setBooks] = useState([]);
   const [search, setSearch] = useState('');
@@ -54,14 +43,6 @@ export default function BooksPage() {
   });
   const [addStockData, setAddStockData] = useState({ quantity: 1, entryDate: '', location: '' });
   const [reduceStockData, setReduceStockData] = useState({ quantity: 1, reason: '', notes: '' });
-  const [showAddBarangForm, setShowAddBarangForm] = useState(false);
-  const [barangFormData, setBarangFormData] = useState({
-    name: '',
-    category: '',
-    unit: 'pcs',
-    stock: 1,
-    minStock: 0
-  });
   const [selectedBookCategory, setSelectedBookCategory] = useState('');
   const [message, setMessage] = useState('');
   const fileInputRef = useRef(null);
@@ -109,24 +90,6 @@ export default function BooksPage() {
       loadBooks();
     } catch (err) {
       setMessage('❌ Gagal menambahkan buku');
-      console.error(err);
-    }
-  };
-
-  const handleAddBarangSubmit = async (e) => {
-    e.preventDefault();
-    setMessage('');
-    try {
-      await api.post('/inventories', {
-        ...barangFormData,
-        stock: Number(barangFormData.stock) || 0,
-        minStock: Number(barangFormData.minStock) || 0
-      });
-      setMessage('✅ Barang inventaris berhasil ditambahkan!');
-      setShowAddBarangForm(false);
-      setBarangFormData({ name: '', category: '', unit: 'pcs', stock: 1, minStock: 0 });
-    } catch (err) {
-      setMessage('❌ Gagal menambahkan barang inventaris');
       console.error(err);
     }
   };
@@ -212,8 +175,18 @@ export default function BooksPage() {
 
   const openQrModal = async (book) => {
     setSelectedBook(book);
-    // QR code sekarang disimpan di level buku, tidak perlu fetch items
     setShowQrModal(true);
+    if (!book.qrCodeUrl) {
+      try {
+        const res = await api.get(`/books/${book.id}/qr-code`);
+        if (res.data?.qrCodeUrl) {
+          setSelectedBook((prev) => (prev && prev.id === book.id ? { ...prev, qrCodeUrl: res.data.qrCodeUrl } : prev));
+          setBooks((prev) => prev.map((b) => (b.id === book.id ? { ...b, qrCodeUrl: res.data.qrCodeUrl } : b)));
+        }
+      } catch (err) {
+        console.error('Failed to auto-fetch QR code:', err);
+      }
+    }
   };
 
   const openEditModal = (book) => {
@@ -282,53 +255,9 @@ export default function BooksPage() {
   return (
     <div>
       <div className="page-header" style={{ marginBottom: 12 }}>
-        <h2 className="page-title">📖 {isStaff ? 'Data Buku & Barang' : 'Katalog Buku & Barang'}</h2>
+        <h2 className="page-title">📖 {isStaff ? 'Data Buku' : 'Katalog Buku'}</h2>
+        <p className="page-subtitle">Kelola katalog buku, eksemplar, dan pencetakan barcode/QR perpustakaan</p>
       </div>
-
-      {/* Tab Switcher Panel */}
-      <div className="tab-switcher" style={{ display: 'flex', gap: 10, marginBottom: 20, borderBottom: '2px solid #cbd5e1', paddingBottom: 4 }}>
-        <button
-          type="button"
-          onClick={() => handleTabChange('books')}
-          style={{
-            padding: '10px 22px',
-            borderRadius: '8px 8px 0 0',
-            border: 'none',
-            background: activeTab === 'books' ? '#1d4ed8' : '#f1f5f9',
-            color: activeTab === 'books' ? '#ffffff' : '#475569',
-            fontWeight: 700,
-            fontSize: '14px',
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-            boxShadow: activeTab === 'books' ? '0 4px 12px rgba(29,78,216,0.25)' : 'none'
-          }}
-        >
-          📖 Katalog Buku ({books.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => handleTabChange('inventories')}
-          style={{
-            padding: '10px 22px',
-            borderRadius: '8px 8px 0 0',
-            border: 'none',
-            background: activeTab === 'inventories' ? '#059669' : '#f1f5f9',
-            color: activeTab === 'inventories' ? '#ffffff' : '#475569',
-            fontWeight: 700,
-            fontSize: '14px',
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-            boxShadow: activeTab === 'inventories' ? '0 4px 12px rgba(5,150,105,0.25)' : 'none'
-          }}
-        >
-          📦 Inventaris Barang
-        </button>
-      </div>
-
-      {activeTab === 'inventories' ? (
-        <InventoriesPage />
-      ) : (
-        <>
           <div
             className="page-actions-row"
             style={{
@@ -387,23 +316,9 @@ export default function BooksPage() {
                   type="button"
                   className="btn-primary"
                   style={{ padding: '8px 16px', fontSize: 13, borderRadius: 8, background: '#1d4ed8', borderColor: '#1d4ed8' }}
-                  onClick={() => {
-                    setShowForm(!showForm);
-                    if (!showForm) setShowAddBarangForm(false);
-                  }}
+                  onClick={() => setShowForm(!showForm)}
                 >
                   {showForm ? '✕ Batal' : '📚 + Tambah Buku'}
-                </button>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  style={{ padding: '8px 16px', fontSize: 13, borderRadius: 8, background: '#059669', borderColor: '#059669' }}
-                  onClick={() => {
-                    setShowAddBarangForm(!showAddBarangForm);
-                    if (!showAddBarangForm) setShowForm(false);
-                  }}
-                >
-                  {showAddBarangForm ? '✕ Batal' : '📦 + Tambah Barang'}
                 </button>
               </div>
             )}
@@ -494,78 +409,6 @@ export default function BooksPage() {
         </div>
       )}
 
-      {showAddBarangForm && (
-        <div className="form-card" style={{ borderLeft: '4px solid #059669' }}>
-          <h3 className="form-card-title">📦 Tambah Barang Inventaris Baru</h3>
-          <form onSubmit={handleAddBarangSubmit}>
-            <div className="form-grid">
-              <label className="form-label">
-                Nama Barang *
-                <input
-                  className="form-input"
-                  required
-                  value={barangFormData.name}
-                  onChange={(e) => setBarangFormData({ ...barangFormData, name: e.target.value })}
-                  placeholder="Contoh: Spidol Boardmarker, Meja Baca, Laptop"
-                />
-              </label>
-
-              <label className="form-label">
-                Kategori
-                <input
-                  className="form-input"
-                  value={barangFormData.category}
-                  onChange={(e) => setBarangFormData({ ...barangFormData, category: e.target.value })}
-                  placeholder="Contoh: Alat Tulis, Kebersihan, Meubel, Elektronik"
-                />
-              </label>
-
-              <label className="form-label">
-                Stok Awal *
-                <input
-                  type="number"
-                  min="0"
-                  className="form-input"
-                  required
-                  value={barangFormData.stock}
-                  onChange={(e) => setBarangFormData({ ...barangFormData, stock: e.target.value })}
-                />
-              </label>
-
-              <label className="form-label">
-                Satuan
-                <input
-                  className="form-input"
-                  value={barangFormData.unit}
-                  onChange={(e) => setBarangFormData({ ...barangFormData, unit: e.target.value })}
-                  placeholder="pcs, box, pack, unit"
-                />
-              </label>
-
-              <label className="form-label">
-                Batas Minimal Stok (Alert)
-                <input
-                  type="number"
-                  min="0"
-                  className="form-input"
-                  value={barangFormData.minStock}
-                  onChange={(e) => setBarangFormData({ ...barangFormData, minStock: e.target.value })}
-                  placeholder="Batas minimal peringatan stok menipis"
-                />
-              </label>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-              <button type="submit" className="btn-primary" style={{ background: '#059669', borderColor: '#059669' }}>
-                💾 Simpan Barang
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setShowAddBarangForm(false)}>
-                Batal
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
 
       {/* Summary Stat Cards for Books */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
@@ -934,10 +777,28 @@ export default function BooksPage() {
                   </div>
                 </div>
               ) : (
-                <div className="empty-state">
-                  <div className="empty-icon">📷</div>
-                  <p>QR code belum dibuat untuk buku ini</p>
-                  <small>QR code akan otomatis dibuat saat menambah stok</small>
+                <div className="empty-state" style={{ padding: '30px 20px', textAlign: 'center' }}>
+                  <div className="empty-icon" style={{ fontSize: '40px', marginBottom: '10px' }}>📷</div>
+                  <p style={{ fontWeight: 600, color: '#1e293b', marginBottom: '8px' }}>QR code belum termuat untuk buku ini</p>
+                  <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>Klik tombol di bawah untuk membuat dan menampilkan QR code buku secara otomatis.</p>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    style={{ margin: '0 auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    onClick={async () => {
+                      try {
+                        const res = await api.get(`/books/${selectedBook.id}/qr-code`);
+                        if (res.data?.qrCodeUrl) {
+                          setSelectedBook({ ...selectedBook, qrCodeUrl: res.data.qrCodeUrl });
+                          setBooks((prev) => prev.map((b) => (b.id === selectedBook.id ? { ...b, qrCodeUrl: res.data.qrCodeUrl } : b)));
+                        }
+                      } catch (err) {
+                        alert('Gagal membuat QR: ' + (err.response?.data?.message || err.message));
+                      }
+                    }}
+                  >
+                    🔄 Buat & Tampilkan QR Code
+                  </button>
                 </div>
               )}
             </div>
@@ -1068,8 +929,6 @@ export default function BooksPage() {
             </div>
           </div>
         </div>
-      )}
-        </>
       )}
     </div>
   );

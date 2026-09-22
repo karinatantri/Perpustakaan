@@ -24,11 +24,16 @@ export default function TransactionsPage() {
   // Warning Letter State
   const [showWarningModal, setShowWarningModal] = useState(false);
   const [selectedWarningTx, setSelectedWarningTx] = useState(null);
+  const [teacherScope, setTeacherScope] = useState('all'); // 'all', 'self', 'class'
 
-  const loadTransactions = async (showLoadingIndicator = true) => {
+  const loadTransactions = async (showLoadingIndicator = true, scope = teacherScope) => {
     if (showLoadingIndicator) setLoading(true);
     try {
-      const txRes = await api.get('/transactions');
+      const params = {};
+      if (userRole === 'teacher' && scope !== 'all') {
+        params.filterType = scope;
+      }
+      const txRes = await api.get('/transactions', { params });
       const txData = txRes.data || [];
       setTransactions(txData);
     } catch (err) {
@@ -94,16 +99,29 @@ export default function TransactionsPage() {
     setShowWarningModal(true);
   };
 
-  const handleResolvePending = async (id) => {
-    if (!confirm('Apakah siswa sudah membayar denda atau mengganti buku?')) {
+  const handleResolvePending = async (tx) => {
+    const studentName = tx.student?.name || 'Peminjam';
+    const fineText = Number(tx.totalFine) > 0 ? ` sebesar Rp ${Number(tx.totalFine).toLocaleString('id-ID')}` : '';
+    const probText = tx.problemSummary ? ` (${tx.problemSummary})` : '';
+
+    const confirmMsg =
+      `💳 KONFIRMASI PELUNASAN DENDA / KASUS\n\n` +
+      `Peminjam: ${studentName}\n` +
+      `No Struk: ${tx.receiptNumber || tx.id}\n` +
+      `Keterangan: ${probText || 'Denda Keterlambatan / Ganti Rugi'}\n` +
+      `Total Tanggungan: ${fineText || 'Rp 0'}\n\n` +
+      `Apakah siswa/guru telah melunasi denda atau menyelesaikan ganti rugi buku?\n\n` +
+      `Klik OK untuk menandai status transaksi menjadi "Denda Lunas".`;
+
+    if (!confirm(confirmMsg)) {
       return;
     }
     try {
-      await api.put(`/transactions/${id}/resolve-pending`, { action: 'paid' });
-      alert('✅ Kasus berhasil diselesaikan');
+      await api.put(`/transactions/${tx.id}/resolve-pending`, { action: 'paid' });
+      alert(`✅ Berhasil! Denda/kasus "${studentName}" telah ditandai Lunas.`);
       loadTransactions();
     } catch (err) {
-      alert('❌ Gagal menyelesaikan kasus');
+      alert('❌ Gagal menyelesaikan kasus: ' + (err.response?.data?.message || err.message));
       console.error(err);
     }
   };
@@ -154,12 +172,39 @@ export default function TransactionsPage() {
       );
     }
 
+    if (t.status === 'has_problem_pending') {
+      const fineVal = Number(t.totalFine) || 0;
+      return (
+        <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+          <span style={{ padding: '4px 10px', background: '#fef2f2', color: '#b91c1c', border: '1px solid #fca5a5', borderRadius: 20, fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap' }}>
+            ⚠️ Denda Belum Lunas
+          </span>
+          {fineVal > 0 && (
+            <span style={{ fontSize: 11, fontWeight: 800, color: '#dc2626' }}>
+              Rp {fineVal.toLocaleString('id-ID')}
+            </span>
+          )}
+          {t.problemSummary && (
+            <span style={{ fontSize: 10, color: '#991b1b', background: '#fee2e2', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>
+              {t.problemSummary}
+            </span>
+          )}
+        </div>
+      );
+    }
+
+    if (t.status === 'has_problem_resolved') {
+      return (
+        <span style={{ padding: '4px 10px', background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
+          💚 Denda Lunas
+        </span>
+      );
+    }
+
     const statusMap = {
       'ongoing': { text: '📢 Sedang Dipinjam', bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' },
       'completed': { text: '✅ Selesai', bg: '#f0fdf4', color: '#166534', border: '#bbf7d0' },
-      'partially_returned': { text: '🔄 Sebagian', bg: '#fff7ed', color: '#c2410c', border: '#ffedd5' },
-      'has_problem_pending': { text: '❌ Ada Denda/Kasus', bg: '#fef2f2', color: '#dc2626', border: '#fecaca' },
-      'has_problem_resolved': { text: '💚 Kasus Selesai', bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' }
+      'partially_returned': { text: '🔄 Sebagian', bg: '#fff7ed', color: '#c2410c', border: '#ffedd5' }
     };
     const s = statusMap[t.status] || { text: t.status, bg: '#f1f5f9', color: '#475569', border: '#cbd5e1' };
 
@@ -170,7 +215,7 @@ export default function TransactionsPage() {
     );
   };
 
-  const pageTitle = userRole === 'teacher' ? '📋 Peminjaman Siswa' : isMember ? '📋 Pinjaman Saya' : '📋 Riwayat & Data Transaksi';
+  const pageTitle = userRole === 'teacher' ? '📋 Data Transaksi (Guru & Kelas)' : isMember ? '📋 Pinjaman Saya' : '📋 Riwayat & Data Transaksi';
 
   return (
     <div>
@@ -203,8 +248,8 @@ export default function TransactionsPage() {
           <div style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>Transaksi Selesai</div>
           <div style={{ fontSize: 24, fontWeight: 800, color: '#16a34a', marginTop: 4 }}>{completedCount}</div>
         </div>
-        <div style={{ background: overdueCount > 0 ? '#fef2f2' : 'white', border: overdueCount > 0 ? '1px solid #fecaca' : '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
-          <div style={{ fontSize: 12, color: overdueCount > 0 ? '#991b1b' : '#64748b', fontWeight: 600 }}>Terlambat / Denda</div>
+          <div style={{ background: overdueCount > 0 ? '#fef2f2' : 'white', border: overdueCount > 0 ? '1px solid #fecaca' : '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
+          <div style={{ fontSize: 12, color: overdueCount > 0 ? '#991b1b' : '#64748b', fontWeight: 600 }}>Terlambat / Denda Belum Lunas</div>
           <div style={{ fontSize: 24, fontWeight: 800, color: overdueCount > 0 ? '#dc2626' : '#0f172a', marginTop: 4 }}>{overdueCount}</div>
         </div>
       </div>
@@ -216,7 +261,7 @@ export default function TransactionsPage() {
             <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: '#94a3b8' }}>🔍</span>
             <input
               type="text"
-              placeholder="Cari berdasarkan nama siswa, NIS, atau kode struk (TX)..."
+              placeholder={userRole === 'student' ? 'Cari berdasarkan kode struk (TX)...' : 'Cari nama guru/siswa, NIS/NIP/NUPTK, atau kode struk (TX)...'}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="form-input"
@@ -224,7 +269,26 @@ export default function TransactionsPage() {
             />
           </div>
 
-          <div style={{ width: 200 }}>
+          {userRole === 'teacher' && (
+            <div style={{ width: 190 }}>
+              <select
+                value={teacherScope}
+                onChange={(e) => {
+                  const newScope = e.target.value;
+                  setTeacherScope(newScope);
+                  loadTransactions(true, newScope);
+                }}
+                className="form-input"
+                style={{ width: '100%', fontWeight: 600 }}
+              >
+                <option value="all">👥 Semua Transaksi</option>
+                <option value="self">👨‍🏫 Pinjaman Saya</option>
+                <option value="class">🎓 Pinjaman Kelas</option>
+              </select>
+            </div>
+          )}
+
+          <div style={{ width: 210 }}>
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
@@ -235,7 +299,7 @@ export default function TransactionsPage() {
               <option value="ongoing">📢 Sedang Dipinjam</option>
               <option value="overdue">⚠️ Terlambat</option>
               <option value="completed">✅ Selesai</option>
-              <option value="problem">❌ Ada Denda/Kasus</option>
+              <option value="problem">⚠️ Denda Belum Lunas</option>
             </select>
           </div>
 
@@ -274,7 +338,7 @@ export default function TransactionsPage() {
                 <th>Kode Struk</th>
                 <th>Tgl Pinjam</th>
                 <th>Jatuh Tempo</th>
-                {userRole !== 'student' && <th>Peminjam / Siswa</th>}
+                {userRole !== 'student' && <th>Peminjam (Guru / Siswa)</th>}
                 <th style={{ textAlign: 'center' }}>Status</th>
                 <th style={{ textAlign: 'center', width: 220 }}>Aksi</th>
               </tr>
@@ -304,9 +368,23 @@ export default function TransactionsPage() {
                       <td>
                         {student.name ? (
                           <div>
-                            <strong style={{ color: '#0f172a' }}>{student.name}</strong>
-                            <br />
-                            <small style={{ color: '#64748b' }}>NIS: {student.nis || '-'} • {student.class || ''}</small>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <strong style={{ color: '#0f172a' }}>{student.name}</strong>
+                              {student.role === 'teacher' ? (
+                                <span style={{ fontSize: 10, padding: '2px 6px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: 4, fontWeight: 700 }}>
+                                  👨‍🏫 GURU
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 10, padding: '2px 6px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 4, fontWeight: 700 }}>
+                                  🎓 SISWA
+                                </span>
+                              )}
+                            </div>
+                            <small style={{ color: '#64748b' }}>
+                              {student.role === 'teacher'
+                                ? `NIP/NUPTK: ${student.nis || '-'} • Guru`
+                                : `NIS: ${student.nis || '-'} • ${student.class || ''}`}
+                            </small>
                           </div>
                         ) : (
                           <span style={{ color: '#94a3b8' }}>ID: {t.studentId}</span>
@@ -342,11 +420,11 @@ export default function TransactionsPage() {
                           <button
                             type="button"
                             className="btn-sm btn-primary"
-                            style={{ padding: '4px 10px', background: '#059669', borderColor: '#059669' }}
-                            onClick={() => handleResolvePending(t.id)}
-                            title="Selesaikan (Sudah Bayar Denda/Ganti Buku)"
+                            style={{ padding: '4px 10px', background: '#059669', borderColor: '#059669', fontWeight: 700 }}
+                            onClick={() => handleResolvePending(t)}
+                            title="Tandai Denda / Ganti Rugi Telah Lunas"
                           >
-                            ✅ Selesaikan
+                            💳 Lunasi Denda
                           </button>
                         )}
                       </div>
