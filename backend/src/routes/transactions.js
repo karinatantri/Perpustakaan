@@ -1057,7 +1057,9 @@ router.get('/:id/return-receipt', auth(['admin', 'officer', 'teacher', 'student'
     const student = studentData ? {
       name: escapeHtml(studentData.name || ''),
       nis: escapeHtml(studentData.nis || ''),
-      class: escapeHtml(studentData.class || '')
+      class: escapeHtml(studentData.class || ''),
+      major: escapeHtml(studentData.major || ''),
+      role: studentData.role || 'student'
     } : null;
 
     const txItemsSnap = await txItemsCol.where('transactionId', '==', id).get();
@@ -1311,12 +1313,12 @@ router.get('/:id/return-receipt', auth(['admin', 'officer', 'teacher', 'student'
           <span class="meta-value">${receiptNumber}</span>
         </div>
         <div class="meta-row">
-          <span class="meta-label">Nama Siswa</span>
+          <span class="meta-label">${student && student.role === 'teacher' ? 'Nama Guru' : 'Nama Siswa'}</span>
           <span class="meta-value">${student ? student.name : '-'}</span>
         </div>
         <div class="meta-row">
-          <span class="meta-label">NIS / Kelas</span>
-          <span class="meta-value">${student ? (student.nis || '-') + ' / ' + (student.class || '-') : '-'}</span>
+          <span class="meta-label">${student && student.role === 'teacher' ? 'NIP/NUPTK / Jabatan' : 'NIS / Kelas'}</span>
+          <span class="meta-value">${student ? (student.nis || '-') + ' / ' + (student.role === 'teacher' ? (student.major || student.class || 'Guru') : (student.class || '-')) : '-'}</span>
         </div>
         <div class="meta-row">
           <span class="meta-label">Tanggal Pinjam</span>
@@ -1377,7 +1379,7 @@ router.get('/:id/return-receipt', auth(['admin', 'officer', 'teacher', 'student'
     </div>
     <div class="sign-row">
       <div class="sign-box">
-        <div class="sign-label">Siswa</div>
+        <div class="sign-label">${student && student.role === 'teacher' ? 'Guru Peminjam' : 'Siswa'}</div>
         <div style="border-top: 1px solid #000; padding-top: 5px;">(${student ? student.name : '_____________________'})</div>
       </div>
       <div class="sign-box">
@@ -1831,8 +1833,8 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'teacher', 'student', 'prin
     <div class="top-grid">
       <div class="meta">
         <div class="meta-row"><span class="meta-label">Nomor Struk</span><span class="meta-value">${receiptNumber}</span></div>
-        <div class="meta-row"><span class="meta-label">Nama Siswa</span><span class="meta-value">${student ? student.name : '-'}</span></div>
-        <div class="meta-row"><span class="meta-label">NIS / Kelas</span><span class="meta-value">${student ? (student.nis || '-') + ' / ' + (student.class || '-') : '-'}</span></div>
+        <div class="meta-row"><span class="meta-label">${student && student.role === 'teacher' ? 'Nama Guru' : 'Nama Siswa'}</span><span class="meta-value">${student ? student.name : '-'}</span></div>
+        <div class="meta-row"><span class="meta-label">${student && student.role === 'teacher' ? 'NIP/NUPTK / Jabatan' : 'NIS / Kelas'}</span><span class="meta-value">${student ? (student.nis || '-') + ' / ' + (student.role === 'teacher' ? (student.major || student.class || 'Guru') : (student.class || '-')) : '-'}</span></div>
         <div class="meta-row"><span class="meta-label">Tanggal Pinjam</span><span class="meta-value">${borrowDate ? new Date(borrowDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : '-'}</span></div>
         <div class="meta-row"><span class="meta-label">Tanggal Kembali</span><span class="meta-value">${returnDate ? new Date(returnDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : '-'}</span></div>
       </div>
@@ -1886,7 +1888,7 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'teacher', 'student', 'prin
     </div>
     <div class="sign-row">
       <div class="sign-box">
-        <span class="sign-label">Siswa</span>
+        <span class="sign-label">${student && student.role === 'teacher' ? 'Guru Peminjam' : 'Siswa'}</span>
         <div class="sign-line">${student ? student.name : '_____________________'}</div>
       </div>
       <div class="sign-box">
@@ -2134,8 +2136,8 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'teacher', 'student', 'prin
     <div class="top-grid">
       <div class="meta">
         <div class="meta-row"><span class="meta-label">Nomor Struk</span><span class="meta-value">${receiptNumber}</span></div>
-        <div class="meta-row"><span class="meta-label">Nama Siswa</span><span class="meta-value">${student ? student.name : '-'}</span></div>
-        <div class="meta-row"><span class="meta-label">NIS / Kelas</span><span class="meta-value">${student ? (student.nis || '-') + ' / ' + (student.class || '-') : '-'}</span></div>
+        <div class="meta-row"><span class="meta-label">${student && student.role === 'teacher' ? 'Nama Guru' : 'Nama Siswa'}</span><span class="meta-value">${student ? student.name : '-'}</span></div>
+        <div class="meta-row"><span class="meta-label">${student && student.role === 'teacher' ? 'NIP/NUPTK / Jabatan' : 'NIS / Kelas'}</span><span class="meta-value">${student ? (student.nis || '-') + ' / ' + (student.role === 'teacher' ? (student.major || student.class || 'Guru') : (student.class || '-')) : '-'}</span></div>
         <div class="meta-row"><span class="meta-label">Tanggal Pinjam</span><span class="meta-value">${borrowDate ? new Date(borrowDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : '-'}</span></div>
         <div class="meta-row"><span class="meta-label">Tanggal Jatuh Tempo</span><span class="meta-value">${dueDate ? new Date(dueDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : '-'}</span></div>
       </div>
@@ -2172,7 +2174,7 @@ router.get('/:id/receipt', auth(['admin', 'officer', 'teacher', 'student', 'prin
     </div>
     <div class="sign-row">
       <div class="sign-box">
-        <span class="sign-label">Siswa</span>
+        <span class="sign-label">${student && student.role === 'teacher' ? 'Guru Peminjam' : 'Siswa'}</span>
         <div class="sign-line">${student ? student.name : '_____________________'}</div>
       </div>
       <div class="sign-box">

@@ -204,6 +204,7 @@ router.put('/:id', auth(['admin', 'officer']), async (req, res) => {
         const userUpdates = { updatedAt: now };
         if (name !== undefined) userUpdates.name = name;
         if (nis !== undefined) userUpdates.username = nis;
+        if (email !== undefined) userUpdates.email = String(email || '').trim().toLowerCase();
         if (className !== undefined) {
           userUpdates.homeroomClass = (className && className !== '-') ? className : null;
         }

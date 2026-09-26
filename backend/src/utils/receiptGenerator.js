@@ -150,6 +150,7 @@ function generateReturnReceiptHtml({ receiptNumber, student, borrowDate, returnD
   const isTeacher = student?.role === 'teacher';
   const memberLabel = isTeacher ? 'Nama Guru' : 'Nama Siswa';
   const idLabel = isTeacher ? 'NIP/NUPTK / Jabatan' : 'NIS / Kelas';
+  const signLabel = isTeacher ? 'Guru Peminjam' : 'Siswa';
   const safeStudentName = student ? escapeHtml(student.name) : '-';
   const safeStudentNis = student
     ? (isTeacher
@@ -224,7 +225,7 @@ function generateReturnReceiptHtml({ receiptNumber, student, borrowDate, returnD
       ${status === 'has_problem_resolved' ? '<div style="margin-top: 8px; padding: 8px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 6px; text-align: center; font-size: 11px; color: #166534; font-weight: 700;">✅ Denda / Ganti Rugi Telah Lunas</div>' : ''}
     </div>
     <div class="sign-row">
-      <div class="sign-box"><span class="sign-label">Siswa</span><div class="sign-line">${safeStudentName}</div></div>
+      <div class="sign-box"><span class="sign-label">${signLabel}</span><div class="sign-line">${safeStudentName}</div></div>
       <div class="sign-box"><span class="sign-label">${safeOfficerTitle}</span><div class="sign-line">${safeOfficerName}</div></div>
     </div>
     <div class="footer">Terima kasih telah mengembalikan buku tepat waktu</div>

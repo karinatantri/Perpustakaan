@@ -5082,6 +5082,48 @@ textarea.form-input {
   margin-top: 1px;
 }
 
+.lp-forgot-btn {
+  align-self: flex-end;
+  margin: -5px 0 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #15803d;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lp-forgot-btn:hover { color: #166534; text-decoration: underline; }
+
+.lp-reset-panel {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  background: #f0fdf4;
+}
+
+.lp-reset-input { width: 100%; }
+.lp-reset-error, .lp-reset-success { margin: 0; font-size: 12px; line-height: 1.4; }
+.lp-reset-error { color: #be123c; }
+.lp-reset-success { color: #166534; }
+
+.lp-reset-submit {
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: #15803d;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lp-reset-submit:disabled { cursor: wait; opacity: .65; }
+
+
 /* Submit button */
 .lp-submit {
   width: 100%;

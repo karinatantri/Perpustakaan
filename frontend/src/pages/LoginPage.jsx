@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { sendPasswordResetEmail, signInWithEmailAndPassword } from 'firebase/auth';
 import api from '../api.js';
+import { firebaseAuth, isFirebaseConfigured } from '../firebaseClient.js';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -11,6 +13,11 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
   const [focusedField, setFocusedField] = useState(null);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetMessage, setResetMessage] = useState('');
+  const [resetError, setResetError] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
   const canvasRef = useRef(null);
   const animRef = useRef(null);
 
@@ -117,7 +124,20 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      const res = await api.post('/auth/login', { username, password });
+      let res;
+      // Firebase-authenticated accounts (after email password reset) use their
+      // email. Existing NIS/username accounts continue through legacy login.
+      if (isFirebaseConfigured && username.includes('@')) {
+        try {
+          const credential = await signInWithEmailAndPassword(firebaseAuth, username.trim(), password);
+          const idToken = await credential.user.getIdToken();
+          res = await api.post('/auth/firebase-session', { idToken });
+        } catch (_) {
+          res = await api.post('/auth/login', { username, password });
+        }
+      } else {
+        res = await api.post('/auth/login', { username, password });
+      }
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('user', JSON.stringify(res.data.user));
       navigate('/app');
@@ -135,6 +155,36 @@ export default function LoginPage() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setResetError('');
+    setResetMessage('');
+    const identifier = resetEmail.trim();
+    if (!identifier) {
+      setResetError('Masukkan username atau email akun Anda.');
+      return;
+    }
+    if (!isFirebaseConfigured) {
+      setResetError('Firebase Authentication belum dikonfigurasi. Lengkapi VITE_FIREBASE_* pada environment frontend.');
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      const preparation = await api.post('/auth/forgot-password', { identifier });
+      if (!preparation.data.ready) {
+        setResetError(preparation.data.message || 'Email Anda tidak tercatat di data Anda. Segera hubungi admin sistem.');
+        return;
+      }
+      await sendPasswordResetEmail(firebaseAuth, preparation.data.email);
+      setResetMessage('Tautan untuk mengatur ulang password telah dikirim. Periksa kotak masuk atau folder spam.');
+    } catch (err) {
+      console.error('Forgot password error:', err);
+      setResetError(err.response?.data?.message || 'Gagal mengirim tautan reset. Pastikan email terdaftar dan coba lagi.');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -236,7 +286,7 @@ export default function LoginPage() {
 
             {/* Username field */}
             <div className={`lp-field ${focusedField === 'user' ? 'lp-field--focused' : ''} ${username ? 'lp-field--filled' : ''}`}>
-              <label htmlFor="lp-username" className="lp-label">Username</label>
+              <label htmlFor="lp-username" className="lp-label">Username atau Email</label>
               <div className="lp-input-wrap">
                 <span className="lp-input-icon">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -252,7 +302,7 @@ export default function LoginPage() {
                   onChange={(e) => setUsername(e.target.value)}
                   onFocus={() => setFocusedField('user')}
                   onBlur={() => setFocusedField(null)}
-                  placeholder="Masukkan username"
+                  placeholder="Masukkan username atau email"
                   autoComplete="username"
                   required
                 />
@@ -303,6 +353,40 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
+
+            <button
+              type="button"
+              className="lp-forgot-btn"
+              onClick={() => {
+                setShowForgotPassword((value) => !value);
+                setResetError('');
+                setResetMessage('');
+                setResetEmail(username);
+              }}
+            >
+              Lupa password?
+            </button>
+
+            {showForgotPassword && (
+              <div className="lp-reset-panel">
+                <label htmlFor="lp-reset-email" className="lp-label">Username atau email akun</label>
+                <input
+                  id="lp-reset-email"
+                  className="lp-input lp-reset-input"
+                  type="text"
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  placeholder="Masukkan username atau email"
+                  autoComplete="username"
+                  required
+                />
+                {resetError && <p className="lp-reset-error" role="alert">{resetError}</p>}
+                {resetMessage && <p className="lp-reset-success" role="status">{resetMessage}</p>}
+                <button type="button" className="lp-reset-submit" onClick={handleForgotPassword} disabled={resetLoading}>
+                  {resetLoading ? 'Mengirim…' : 'Kirim tautan reset'}
+                </button>
+              </div>
+            )}
 
             {/* Error message */}
             {error && (
