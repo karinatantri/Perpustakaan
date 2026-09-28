@@ -23,7 +23,8 @@ export default function StudentsPage() {
     nis: '',
     name: '',
     class: '',
-    major: ''
+    major: '',
+    email: ''
   });
 
   // Teacher Form Data
@@ -171,7 +172,7 @@ export default function StudentsPage() {
       });
       setMessage(`✅ Siswa "${studentFormData.name}" berhasil ditambahkan & akun login @${studentFormData.nis} otomatis dibuat!`);
       setShowStudentForm(false);
-      setStudentFormData({ nis: '', name: '', class: '', major: '' });
+      setStudentFormData({ nis: '', name: '', class: '', major: '', email: '' });
       setActiveTab('students');
       setSearch('');
       await loadMembers('');
@@ -515,6 +516,16 @@ export default function StudentsPage() {
                   placeholder="Contoh: Rekayasa Perangkat Lunak"
                 />
               </label>
+              <label className="form-label">
+                Email untuk Reset Kata Sandi (Opsional)
+                <input
+                  type="email"
+                  className="form-input"
+                  value={studentFormData.email}
+                  onChange={(e) => setStudentFormData({ ...studentFormData, email: e.target.value })}
+                  placeholder="siswa@sekolah.sch.id"
+                />
+              </label>
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
               <button type="submit" className="btn-primary">
@@ -598,7 +609,7 @@ export default function StudentsPage() {
                 />
               </label>
               <label className="form-label">
-                Email (Opsional)
+                Email untuk Reset Kata Sandi (Opsional)
                 <input
                   type="email"
                   className="form-input"
@@ -917,6 +928,16 @@ export default function StudentsPage() {
                     onChange={(e) => setEditFormData({ ...editFormData, major: e.target.value })}
                   />
                 </label>
+                <label className="form-label">
+                  Email untuk Reset Kata Sandi (Opsional)
+                  <input
+                    type="email"
+                    className="form-input"
+                    value={editFormData.email}
+                    onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
+                    placeholder="nama@sekolah.sch.id"
+                  />
+                </label>
                 {selectedMember.role === 'teacher' && (
                   <>
                     <label className="form-label">
@@ -926,16 +947,6 @@ export default function StudentsPage() {
                         value={editFormData.phone}
                         onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })}
                         placeholder="08xxxxxxxxxx"
-                      />
-                    </label>
-                    <label className="form-label">
-                      Email
-                      <input
-                        type="email"
-                        className="form-input"
-                        value={editFormData.email}
-                        onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
-                        placeholder="guru@sekolah.sch.id"
                       />
                     </label>
                   </>

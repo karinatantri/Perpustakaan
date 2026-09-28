@@ -8,6 +8,12 @@ const db = getFirestore();
 const usersCol = db.collection('users');
 
 const allowedRoles = ['admin', 'officer', 'teacher', 'student', 'principal'];
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeEmail(email) {
+  const normalized = String(email || '').trim().toLowerCase();
+  return normalized === '-' ? '' : normalized;
+}
 
 // List users (admin only)
 router.get('/', auth(['admin']), async (req, res) => {
@@ -19,7 +25,9 @@ router.get('/', auth(['admin']), async (req, res) => {
         id: d.id,
         username: data.username,
         role: data.role || 'officer',
-        name: data.name || ''
+        name: data.name || '',
+        email: data.email || '',
+        homeroomClass: data.homeroomClass || null
       };
     });
     res.json(users);
@@ -33,7 +41,8 @@ router.get('/', auth(['admin']), async (req, res) => {
 router.post('/', auth(['admin']), async (req, res) => {
   try {
     const { username, password, role = 'officer', name = '', homeroomClass = null } = req.body || {};
-    console.log('[CREATE USER] Request:', { username, role, name, hasPassword: !!password, homeroomClass });
+    const email = normalizeEmail(req.body?.email);
+    console.log('[CREATE USER] Request:', { username, role, name, hasPassword: !!password, homeroomClass, hasEmail: !!email });
     
     if (!username || !password) {
       console.log('[CREATE USER] Validation failed: missing username or password');
@@ -43,11 +52,20 @@ router.post('/', auth(['admin']), async (req, res) => {
       console.log('[CREATE USER] Validation failed: invalid role', role);
       return res.status(400).json({ message: 'Role tidak valid' });
     }
+    if (email && !emailPattern.test(email)) {
+      return res.status(400).json({ message: 'Format email tidak valid' });
+    }
 
     const dupSnap = await usersCol.where('username', '==', username).limit(1).get();
     if (!dupSnap.empty) {
       console.log('[CREATE USER] Username already exists:', username);
       return res.status(400).json({ message: 'Username sudah digunakan' });
+    }
+    if (email) {
+      const duplicateEmail = await usersCol.where('email', '==', email).limit(1).get();
+      if (!duplicateEmail.empty) {
+        return res.status(400).json({ message: 'Email sudah digunakan oleh akun lain' });
+      }
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -66,6 +84,7 @@ router.post('/', auth(['admin']), async (req, res) => {
           name: name || existingMemberSnap.docs[0].data().name,
           class: homeroomClass || existingMemberSnap.docs[0].data().class || '-',
           role: 'teacher',
+          email,
           updatedAt: now
         });
       } else {
@@ -76,6 +95,7 @@ router.post('/', auth(['admin']), async (req, res) => {
           major: 'Guru',
           role: 'teacher',
           status: 'active',
+          email,
           createdAt: now,
           updatedAt: now
         });
@@ -88,6 +108,7 @@ router.post('/', auth(['admin']), async (req, res) => {
       passwordHash,
       role,
       name,
+      email,
       studentId,
       homeroomClass: role === 'teacher' ? homeroomClass : null,
       createdAt: now,
@@ -95,7 +116,7 @@ router.post('/', auth(['admin']), async (req, res) => {
     });
 
     console.log('[CREATE USER] User created successfully:', { id: docRef.id, username, role, studentId });
-    res.status(201).json({ id: docRef.id, username, role, name, homeroomClass, studentId });
+    res.status(201).json({ id: docRef.id, username, role, name, email, homeroomClass, studentId });
   } catch (err) {
     console.error('[CREATE USER] Error:', err);
     res.status(500).json({ message: 'Gagal membuat pengguna: ' + err.message });
@@ -178,6 +199,8 @@ router.put('/:id', auth(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
     const { username, password, role, name, homeroomClass } = req.body || {};
+    const hasEmail = Object.prototype.hasOwnProperty.call(req.body || {}, 'email');
+    const email = normalizeEmail(req.body?.email);
 
     const userDoc = await usersCol.doc(id).get();
     if (!userDoc.exists) {
@@ -204,6 +227,18 @@ router.put('/:id', auth(['admin']), async (req, res) => {
     if (typeof name === 'string') {
       updates.name = name;
     }
+    if (hasEmail) {
+      if (email && !emailPattern.test(email)) {
+        return res.status(400).json({ message: 'Format email tidak valid' });
+      }
+      if (email) {
+        const duplicateEmail = await usersCol.where('email', '==', email).limit(1).get();
+        if (!duplicateEmail.empty && duplicateEmail.docs[0].id !== id) {
+          return res.status(400).json({ message: 'Email sudah digunakan oleh akun lain' });
+        }
+      }
+      updates.email = email;
+    }
     if (password) {
       updates.passwordHash = await bcrypt.hash(password, 10);
     }
@@ -227,6 +262,7 @@ router.put('/:id', auth(['admin']), async (req, res) => {
       const memberUpdates = { role: 'teacher', updatedAt: now };
       if (name !== undefined) memberUpdates.name = name;
       if (username !== undefined) memberUpdates.nis = username;
+      if (hasEmail) memberUpdates.email = email;
       if (typeof homeroomClass !== 'undefined') memberUpdates.class = homeroomClass || '-';
 
       if (memberId) {
@@ -252,6 +288,7 @@ router.put('/:id', auth(['admin']), async (req, res) => {
             major: 'Guru',
             role: 'teacher',
             status: 'active',
+            email: hasEmail ? email : '',
             createdAt: now,
             updatedAt: now
           });

@@ -8,6 +8,12 @@ const { auth } = require('../middleware/auth');
 const router = express.Router();
 const db = getFirestore();
 const collection = db.collection('students');
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeEmail(email) {
+  const normalized = String(email || '').trim().toLowerCase();
+  return normalized === '-' ? '' : normalized;
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -111,9 +117,13 @@ router.get('/search', auth(['admin', 'officer', 'teacher', 'principal']), async 
 // Create member (student or teacher) and automatically create user login account
 router.post('/', auth(['admin', 'officer']), async (req, res) => {
   try {
-    const { nis, name, class: className, major, role = 'student', phone, email } = req.body;
+    const { nis, name, class: className, major, role = 'student', phone } = req.body;
+    const email = normalizeEmail(req.body?.email);
     if (!nis || !name) {
       return res.status(400).json({ message: 'NIS / NIP / NUPTK dan nama wajib diisi' });
+    }
+    if (email && !emailPattern.test(email)) {
+      return res.status(400).json({ message: 'Format email tidak valid' });
     }
 
     const memberRole = role === 'teacher' ? 'teacher' : 'student';
@@ -130,6 +140,12 @@ router.post('/', auth(['admin', 'officer']), async (req, res) => {
     if (!dupUser.empty) {
       return res.status(400).json({ message: `Username akun "${nis}" sudah digunakan.` });
     }
+    if (email) {
+      const duplicateEmail = await usersCol.where('email', '==', email).limit(1).get();
+      if (!duplicateEmail.empty) {
+        return res.status(400).json({ message: 'Email sudah digunakan oleh akun lain' });
+      }
+    }
 
     const now = new Date().toISOString();
     const docRef = await collection.add({
@@ -139,7 +155,7 @@ router.post('/', auth(['admin', 'officer']), async (req, res) => {
       major: major || (memberRole === 'teacher' ? 'Guru' : '-'),
       role: memberRole,
       phone: phone || '-',
-      email: email || '-',
+      email,
       status: 'active',
       createdAt: now,
       updatedAt: now
@@ -152,6 +168,7 @@ router.post('/', auth(['admin', 'officer']), async (req, res) => {
       passwordHash,
       role: memberRole,
       name: name,
+      email,
       studentId: docRef.id,
       homeroomClass: (memberRole === 'teacher' && className && className !== '-') ? className : null,
       createdAt: now,
@@ -172,7 +189,9 @@ router.post('/', auth(['admin', 'officer']), async (req, res) => {
 router.put('/:id', auth(['admin', 'officer']), async (req, res) => {
   try {
     const { id } = req.params;
-    const { nis, name, class: className, major, birthDate, address, email, phone, status, role } = req.body;
+    const { nis, name, class: className, major, birthDate, address, phone, status, role } = req.body;
+    const hasEmail = Object.prototype.hasOwnProperty.call(req.body || {}, 'email');
+    const email = normalizeEmail(req.body?.email);
     const updates = {};
     if (nis !== undefined) updates.nis = nis;
     if (name !== undefined) updates.name = name;
@@ -180,7 +199,12 @@ router.put('/:id', auth(['admin', 'officer']), async (req, res) => {
     if (major !== undefined) updates.major = major;
     if (birthDate !== undefined) updates.birthDate = birthDate;
     if (address !== undefined) updates.address = address;
-    if (email !== undefined) updates.email = email;
+    if (hasEmail) {
+      if (email && !emailPattern.test(email)) {
+        return res.status(400).json({ message: 'Format email tidak valid' });
+      }
+      updates.email = email;
+    }
     if (phone !== undefined) updates.phone = phone;
     if (status !== undefined) updates.status = status;
     if (role !== undefined) updates.role = role;
@@ -194,6 +218,17 @@ router.put('/:id', auth(['admin', 'officer']), async (req, res) => {
     const existing = await docRef.get();
     if (!existing.exists) return res.status(404).json({ message: 'Anggota tidak ditemukan' });
 
+    if (hasEmail && email) {
+      const usersCol = db.collection('users');
+      const [linkedUserSnap, duplicateEmailSnap] = await Promise.all([
+        usersCol.where('studentId', '==', id).limit(1).get(),
+        usersCol.where('email', '==', email).limit(1).get()
+      ]);
+      if (!duplicateEmailSnap.empty && duplicateEmailSnap.docs[0].id !== linkedUserSnap.docs[0]?.id) {
+        return res.status(400).json({ message: 'Email sudah digunakan oleh akun lain' });
+      }
+    }
+
     await docRef.update(updates);
 
     // Sync changes to user account if associated
@@ -204,7 +239,7 @@ router.put('/:id', auth(['admin', 'officer']), async (req, res) => {
         const userUpdates = { updatedAt: now };
         if (name !== undefined) userUpdates.name = name;
         if (nis !== undefined) userUpdates.username = nis;
-        if (email !== undefined) userUpdates.email = String(email || '').trim().toLowerCase();
+        if (hasEmail) userUpdates.email = email;
         if (className !== undefined) {
           userUpdates.homeroomClass = (className && className !== '-') ? className : null;
         }
@@ -271,6 +306,7 @@ router.get('/export', auth(['admin', 'officer', 'principal']), async (req, res) 
       Email: d.data().email || '-',
       'No HP': d.data().phone || '-',
       Jurusan: d.data().major || '-',
+      Role: d.data().role || 'student',
       Status: d.data().status || 'active'
     }));
 
@@ -309,14 +345,34 @@ router.post('/import', auth(['admin', 'officer']), upload.single('file'), async 
 
     // Collect valid rows first
     const validRows = [];
+    const importedNis = new Set();
+    const importedEmails = new Set();
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       const nis = String(row['NIS/NIM'] || row.nis || '').trim();
       const name = String(row['Nama Siswa'] || row.name || '').trim();
+      const email = normalizeEmail(row.Email || row.email);
+      const role = String(row.Role || row.role || 'student').trim().toLowerCase() === 'teacher' ? 'teacher' : 'student';
+      const status = String(row.Status || row.status || 'active').trim() || 'active';
 
       if (!nis || !name) {
         errorCount++;
         errors.push(`Row ${i + 2}: Missing NIS or Name`);
+        continue;
+      }
+      if (email && !emailPattern.test(email)) {
+        errorCount++;
+        errors.push(`Row ${i + 2}: Invalid email`);
+        continue;
+      }
+      if (importedNis.has(nis)) {
+        errorCount++;
+        errors.push(`Row ${i + 2}: NIS ${nis} is duplicated in the import file`);
+        continue;
+      }
+      if (email && importedEmails.has(email)) {
+        errorCount++;
+        errors.push(`Row ${i + 2}: Email ${email} is duplicated in the import file`);
         continue;
       }
 
@@ -327,8 +383,24 @@ router.post('/import', auth(['admin', 'officer']), upload.single('file'), async 
         errors.push(`Row ${i + 2}: NIS ${nis} already exists`);
         continue;
       }
+      const existingUserSnap = await db.collection('users').where('username', '==', nis).limit(1).get();
+      if (!existingUserSnap.empty) {
+        errorCount++;
+        errors.push(`Row ${i + 2}: Username ${nis} already exists`);
+        continue;
+      }
+      if (email) {
+        const existingEmailSnap = await db.collection('users').where('email', '==', email).limit(1).get();
+        if (!existingEmailSnap.empty) {
+          errorCount++;
+          errors.push(`Row ${i + 2}: Email ${email} already exists`);
+          continue;
+        }
+      }
 
-      validRows.push({ nis, name, row });
+      importedNis.add(nis);
+      if (email) importedEmails.add(email);
+      validRows.push({ nis, name, email, role, status, row });
     }
 
     // Chunk into batches of max 200 writes (each row = 2 writes: student + user)
@@ -337,18 +409,19 @@ router.post('/import', auth(['admin', 'officer']), upload.single('file'), async 
       const chunk = validRows.slice(c, c + CHUNK_SIZE);
       const batch = db.batch();
 
-      for (const { nis, name, row } of chunk) {
+      for (const { nis, name, email, role, status, row } of chunk) {
         const docRef = collection.doc();
         batch.set(docRef, {
           nis,
           name,
           class: String(row['Kelas/Prodi'] || row.class || '').trim() || '-',
-          major: String(row.Jurusan || row.major || '').trim() || '-',
+          major: String(row.Jurusan || row.major || '').trim() || (role === 'teacher' ? 'Guru' : '-'),
+          role,
           birthDate: row['Tanggal Lahir'] || row.birthDate || '-',
           address: row.Alamat || row.address || '-',
-          email: row.Email || row.email || '-',
+          email,
           phone: String(row['No HP'] || row.phone || '').trim() || '-',
-          status: 'active',
+          status,
           createdAt: now,
           updatedAt: now
         });
@@ -358,9 +431,11 @@ router.post('/import', auth(['admin', 'officer']), upload.single('file'), async 
         batch.set(userRef, {
           username: nis,
           passwordHash,
-          role: 'student',
+          role,
           name: name,
+          email,
           studentId: docRef.id,
+          homeroomClass: role === 'teacher' && String(row['Kelas/Prodi'] || row.class || '').trim() !== '-' ? String(row['Kelas/Prodi'] || row.class || '').trim() : null,
           createdAt: now,
           updatedAt: now
         });

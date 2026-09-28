@@ -31,6 +31,7 @@ async function syncTeachers() {
           const updates = {};
           if (mData.role !== 'teacher') updates.role = 'teacher';
           if (userData.name && mData.name !== userData.name) updates.name = userData.name;
+          if (userData.email && mData.email !== userData.email) updates.email = userData.email;
           if (userData.homeroomClass && mData.class !== userData.homeroomClass) {
             updates.class = userData.homeroomClass;
           }
@@ -59,6 +60,7 @@ async function syncTeachers() {
           role: 'teacher',
           name: userData.name || foundDoc.data().name,
           class: userData.homeroomClass || foundDoc.data().class || '-',
+          email: userData.email || foundDoc.data().email || '',
           updatedAt: now
         });
       } else {
@@ -70,6 +72,7 @@ async function syncTeachers() {
           major: 'Guru',
           role: 'teacher',
           status: 'active',
+          email: userData.email || '',
           createdAt: userData.createdAt || now,
           updatedAt: now
         });
@@ -96,4 +99,3 @@ async function syncTeachers() {
 module.exports = {
   syncTeachers
 };
-

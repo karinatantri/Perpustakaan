@@ -21,7 +21,7 @@ export default function AccountsPage() {
   const [selectedRoleFilter, setSelectedRoleFilter] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  const [form, setForm] = useState({ username: '', password: '', role: 'officer', name: '', homeroomClass: '' });
+  const [form, setForm] = useState({ username: '', password: '', role: 'officer', name: '', email: '', homeroomClass: '' });
   const [editId, setEditId] = useState(null);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('info'); // 'info' | 'error' | 'success'
@@ -64,7 +64,7 @@ export default function AccountsPage() {
 
   const resetForm = () => {
     setEditId(null);
-    setForm({ username: '', password: '', role: 'officer', name: '', homeroomClass: '' });
+    setForm({ username: '', password: '', role: 'officer', name: '', email: '', homeroomClass: '' });
     setShowPassword(false);
   };
 
@@ -89,6 +89,7 @@ export default function AccountsPage() {
           password: form.password || undefined,
           role: form.role,
           name: form.name,
+          email: form.email,
           homeroomClass: form.role === 'teacher' ? (form.homeroomClass || null) : null
         });
         setMessage('✅ Berhasil memperbarui data akun');
@@ -107,6 +108,7 @@ export default function AccountsPage() {
           password: password,
           role: form.role,
           name: form.name?.trim() || '',
+          email: form.email.trim(),
           homeroomClass: form.role === 'teacher' ? (form.homeroomClass || null) : null
         };
 
@@ -128,7 +130,7 @@ export default function AccountsPage() {
 
   const handleEdit = (u) => {
     setEditId(u.id);
-    setForm({ username: u.username, password: '', role: u.role, name: u.name || '', homeroomClass: u.homeroomClass || '' });
+    setForm({ username: u.username, password: '', role: u.role, name: u.name || '', email: u.email || '', homeroomClass: u.homeroomClass || '' });
     setMessage('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -399,6 +401,19 @@ export default function AccountsPage() {
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 placeholder="Contoh: Ahmad Fadli, S.Pd."
+                style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
+                Email untuk Reset Kata Sandi (Opsional)
+              </label>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="nama@sekolah.sch.id"
                 style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none' }}
               />
             </div>
