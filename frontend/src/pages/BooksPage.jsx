@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import api from '../api.js';
+import { bookFilterOptions, filterBooks } from '../utils/bookFilters.mjs';
 import { downloadOrShareImage } from '../utils/downloadHelper.js';
 
 export default function BooksPage() {
@@ -49,21 +50,26 @@ export default function BooksPage() {
   const [message, setMessage] = useState('');
   const fileInputRef = useRef(null);
 
-  const bookCategories = Array.from(new Set(books.map((b) => b.category).filter(Boolean)));
-
-  const filteredBooks = books.filter((b) => {
-    const q = search.toLowerCase();
-    const matchSearch =
-      !search ||
-      (b.title || '').toLowerCase().includes(q) ||
-      (b.author || '').toLowerCase().includes(q) ||
-      (b.category || '').toLowerCase().includes(q) ||
-      (b.location || '').toLowerCase().includes(q) ||
-      (b.year || '').toString().includes(q);
-    const matchCat = !selectedBookCategory || b.category === selectedBookCategory;
-    return matchSearch && matchCat;
+  const [borrowingFilter, setBorrowingFilter] = useState('');
+  const [stockFilter, setStockFilter] = useState('');
+  const [locationFilter, setLocationFilter] = useState('');
+  const [sortOrder, setSortOrder] = useState('title-asc');
+  const bookCategories = bookFilterOptions(books, 'category');
+  const bookLocations = bookFilterOptions(books, 'location');
+  const hasFilters = Boolean(search.trim() || selectedBookCategory || borrowingFilter || stockFilter || locationFilter);
+  const canReset = hasFilters || sortOrder !== 'title-asc';
+  const resetFilters = () => {
+    setSearch('');
+    setSelectedBookCategory('');
+    setBorrowingFilter('');
+    setStockFilter('');
+    setLocationFilter('');
+    setSortOrder('title-asc');
+  };
+  const filteredBooks = filterBooks(books, {
+    search, category: selectedBookCategory, borrowing: borrowingFilter,
+    stock: stockFilter, location: locationFilter, sort: sortOrder
   });
-
   const loadBooks = async () => {
     setLoading(true);
     try {
@@ -446,55 +452,87 @@ export default function BooksPage() {
       </div>
 
       {/* Filter & Search Bar for Books */}
-      <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16, marginBottom: 20, boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ flex: 1, minWidth: 220, position: 'relative' }}>
-            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: '#94a3b8' }}>🔍</span>
-            <input
-              type="text"
-              placeholder="Cari judul buku, penulis, rak, atau penerbit..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="form-input"
-              style={{ paddingLeft: 36, width: '100%' }}
-            />
+      <section className="book-filters" aria-labelledby="book-filters-title">
+        <div className="book-filters-heading">
+          <div>
+            <h2 id="book-filters-title">Temukan buku</h2>
+            <p>Gabungkan filter untuk menemukan koleksi yang Anda cari.</p>
           </div>
-
-          <div style={{ width: 200 }}>
-            <select
-              value={selectedBookCategory}
-              onChange={(e) => setSelectedBookCategory(e.target.value)}
-              className="form-input"
-              style={{ width: '100%' }}
-            >
-              <option value="">📁 Semua Kategori ({bookCategories.length})</option>
-              {bookCategories.map((cat) => (
-                <option key={cat} value={cat}>📁 {cat}</option>
-              ))}
-            </select>
-          </div>
-
-          {(search || selectedBookCategory) && (
-            <button
-              type="button"
-              onClick={() => { setSearch(''); setSelectedBookCategory(''); }}
-              className="btn-secondary"
-              style={{ padding: '8px 14px', fontSize: 13 }}
-            >
-              ✕ Reset Filter
-            </button>
-          )}
+          {canReset && <button type="button" className="btn-secondary book-filters-reset" onClick={resetFilters}>Reset Filter</button>}
         </div>
-      </div>
-
+        <div className="book-filters-grid">
+          <label className="form-label book-filters-search">
+            Cari buku
+            <input type="search" className="form-input"
+              placeholder="Judul, penulis, penerbit, tahun, rak, atau kode buku"
+              value={search} onChange={(e) => setSearch(e.target.value)} />
+          </label>
+          <label className="form-label">
+            Kategori
+            <select className="form-input" value={selectedBookCategory} onChange={(e) => setSelectedBookCategory(e.target.value)}>
+              <option value="">Semua kategori</option>
+              {bookCategories.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label className="form-label">
+            Status peminjaman
+            <select className="form-input" value={borrowingFilter} onChange={(e) => setBorrowingFilter(e.target.value)}>
+              <option value="">Semua status</option>
+              <option value="allowed">Bisa dipinjam</option>
+              <option value="restricted">Tidak bisa dipinjam</option>
+            </select>
+          </label>
+          <label className="form-label">
+            Ketersediaan stok
+            <select className="form-input" value={stockFilter} onChange={(e) => setStockFilter(e.target.value)}>
+              <option value="">Semua stok</option>
+              <option value="available">Stok tersedia</option>
+              <option value="empty">Stok habis</option>
+            </select>
+          </label>
+          <label className="form-label">
+            Lokasi rak
+            <select className="form-input" value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)}>
+              <option value="">Semua lokasi</option>
+              {bookLocations.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label className="form-label">
+            Urutkan
+            <select className="form-input" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
+              <option value="title-asc">Judul A–Z</option>
+              <option value="title-desc">Judul Z–A</option>
+              <option value="year-desc">Tahun terbit terbaru</option>
+            </select>
+          </label>
+        </div>
+        <div className="book-filters-footer">
+          <p role="status" className="book-filters-count">
+            <strong>{filteredBooks.length}</strong> dari {books.length} judul buku
+          </p>
+          {hasFilters && <div className="book-filter-tags" aria-label="Filter aktif">
+            {[
+              search.trim() && { label: `Pencarian: ${search.trim()}`, clear: () => setSearch('') },
+              selectedBookCategory && { label: `Kategori: ${selectedBookCategory}`, clear: () => setSelectedBookCategory('') },
+              borrowingFilter && { label: borrowingFilter === 'allowed' ? 'Bisa dipinjam' : 'Tidak bisa dipinjam', clear: () => setBorrowingFilter('') },
+              stockFilter && { label: stockFilter === 'available' ? 'Stok tersedia' : 'Stok habis', clear: () => setStockFilter('') },
+              locationFilter && { label: `Rak: ${locationFilter}`, clear: () => setLocationFilter('') }
+            ].filter(Boolean).map(({ label, clear }) => (
+              <button type="button" className="book-filter-tag" key={label} onClick={clear} aria-label={`Hapus filter ${label}`}>
+                <span>{label}</span><span aria-hidden="true">×</span>
+              </button>
+            ))}
+          </div>}
+        </div>
+      </section>
       {/* Table Data Buku */}
       {filteredBooks.length === 0 ? (
         <div style={{ padding: 50, textAlign: 'center', background: 'white', border: '1px solid #e2e8f0', borderRadius: 12 }}>
           <div style={{ fontSize: 36, marginBottom: 8 }}>📚</div>
           <p style={{ color: '#64748b', fontWeight: 600, fontSize: 15 }}>
-            {search || selectedBookCategory ? 'Tidak ada buku yang cocok dengan pencarian.' : 'Belum ada data buku.'}
+            {loading ? 'Memuat data buku...' : hasFilters ? 'Tidak ada buku yang cocok. Coba ubah atau reset filter.' : 'Belum ada data buku.'}
           </p>
-          {isStaff && !search && (
+          {isStaff && !loading && books.length === 0 && !hasFilters && (
             <button type="button" className="btn-primary" style={{ marginTop: 12 }} onClick={() => setShowForm(true)}>
               + Tambah Buku Pertama
             </button>
