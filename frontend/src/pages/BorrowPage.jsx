@@ -95,6 +95,10 @@ export default function BorrowPage() {
   };
 
   const handleSelectBook = (book) => {
+    if (book.isBorrowable === false) {
+      setMessage('Buku ini tidak bisa dipinjam.');
+      return;
+    }
     const bookId = book.id;
     if (items.find((i) => i.code === bookId)) {
       setMessage(`⚠️ Buku "${book.title}" sudah ada di daftar.`);
@@ -289,7 +293,7 @@ export default function BorrowPage() {
                     <div>
                       <strong>{book.title}</strong>
                       <div className="dropdown-meta">
-                        {book.author || '-'} • {book.category || '-'} • Stok: {book.totalCopies || 0}
+                        {book.author || '-'} • {book.category || '-'} • Stok: {book.totalCopies || 0} • {book.isBorrowable === false ? 'Tidak bisa dipinjam' : 'Bisa dipinjam'}
                       </div>
                     </div>
                   </button>
@@ -533,6 +537,10 @@ export default function BorrowPage() {
                 `/books/by-code/${encodeURIComponent(trimmed)}`
               );
               const book = res.data;
+              if (book.isBorrowable === false) {
+                setMessage('Buku ini tidak bisa dipinjam.');
+                return;
+              }
 
               const itemCode = book.item?.uniqueCode || book.id;
 

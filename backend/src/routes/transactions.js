@@ -157,6 +157,22 @@ router.post('/borrow', auth(['admin', 'officer']), async (req, res) => {
     }
     
     await db.runTransaction(async (t) => {
+      // Read the policy inside the transaction so concurrent edits are respected.
+      for (const bookId of new Set(itemDocs.map(({ data }) => data.bookId))) {
+        if (!bookId) {
+          const error = new Error('Data buku tidak ditemukan');
+          error.status = 400;
+          throw error;
+        }
+        const book = await t.get(booksCol.doc(bookId));
+        if (!book.exists || book.data().isBorrowable === false) {
+          const error = new Error(book.exists
+            ? `Buku "${book.data().title}" tidak bisa dipinjam`
+            : 'Data buku tidak ditemukan');
+          error.status = 400;
+          throw error;
+        }
+      }
       const txRef = transactionsCol.doc();
       transactionId = txRef.id;
       receiptNumber = `TX-${Date.now()}`;
@@ -227,7 +243,7 @@ router.post('/borrow', auth(['admin', 'officer']), async (req, res) => {
     });
   } catch (err) {
     console.error('Create borrow transaction error:', err);
-    res.status(500).json({ message: err.message || 'Failed to create borrow transaction' });
+    res.status(err.status || 500).json({ message: err.message || 'Failed to create borrow transaction' });
   }
 });
 

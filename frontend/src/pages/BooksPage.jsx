@@ -31,7 +31,8 @@ export default function BooksPage() {
     year: '',
     publisher: '',
     totalCopies: 1,
-    location: ''
+    location: '',
+    isBorrowable: true
   });
   const [editFormData, setEditFormData] = useState({
     title: '',
@@ -39,7 +40,8 @@ export default function BooksPage() {
     category: '',
     year: '',
     publisher: '',
-    location: ''
+    location: '',
+    isBorrowable: true
   });
   const [addStockData, setAddStockData] = useState({ quantity: 1, entryDate: '', location: '' });
   const [reduceStockData, setReduceStockData] = useState({ quantity: 1, reason: '', notes: '' });
@@ -86,7 +88,7 @@ export default function BooksPage() {
       await api.post('/books', formData);
       setMessage('✅ Buku berhasil ditambahkan. QR code otomatis dibuat untuk buku ini.');
       setShowForm(false);
-      setFormData({ title: '', author: '', category: '', year: '', publisher: '', totalCopies: 1, location: '' });
+      setFormData({ title: '', author: '', category: '', year: '', publisher: '', totalCopies: 1, location: '', isBorrowable: true });
       loadBooks();
     } catch (err) {
       setMessage('❌ Gagal menambahkan buku');
@@ -197,7 +199,8 @@ export default function BooksPage() {
       category: book.category || '',
       year: book.year || '',
       publisher: book.publisher || '',
-      location: book.location || ''
+      location: book.location || '',
+      isBorrowable: book.isBorrowable !== false
     });
     setShowEditModal(true);
   };
@@ -393,6 +396,14 @@ export default function BooksPage() {
                 </small>
               </label>
               <label className="form-label">
+                  Status Peminjaman
+                  <select className="form-input" value={formData.isBorrowable === false ? 'false' : 'true'}
+                    onChange={(e) => setFormData({ ...formData, isBorrowable: e.target.value === 'true' })}>
+                    <option value="true">Bisa dipinjam</option>
+                    <option value="false">Tidak bisa dipinjam</option>
+                  </select>
+                </label>
+                <label className="form-label">
                 Lokasi Rak
                 <input
                   className="form-input"
@@ -500,7 +511,7 @@ export default function BooksPage() {
                 <th>Kategori</th>
                 <th style={{ textAlign: 'center' }}>Tahun</th>
                 <th style={{ textAlign: 'center' }}>Stok</th>
-                <th>Lokasi Rak</th>
+                <th>Status Peminjaman</th><th>Lokasi Rak</th>
                 {isStaff && <th style={{ textAlign: 'center', width: 220 }}>Aksi</th>}
               </tr>
             </thead>
@@ -530,6 +541,7 @@ export default function BooksPage() {
                       </div>
                     )}
                   </td>
+                  <td>{b.isBorrowable === false ? 'Tidak bisa dipinjam' : 'Bisa dipinjam'}</td>
                   <td style={{ color: '#475569', fontSize: 13 }}>{b.location || '-'}</td>
                   {isStaff && (
                     <td style={{ textAlign: 'center' }}>
@@ -863,6 +875,14 @@ export default function BooksPage() {
                     value={editFormData.publisher}
                     onChange={(e) => setEditFormData({ ...editFormData, publisher: e.target.value })}
                   />
+                </label>
+                <label className="form-label">
+                  Status Peminjaman
+                  <select className="form-input" value={editFormData.isBorrowable === false ? 'false' : 'true'}
+                    onChange={(e) => setEditFormData({ ...editFormData, isBorrowable: e.target.value === 'true' })}>
+                    <option value="true">Bisa dipinjam</option>
+                    <option value="false">Tidak bisa dipinjam</option>
+                  </select>
                 </label>
                 <label className="form-label">
                   Lokasi Rak

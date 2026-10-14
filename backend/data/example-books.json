@@ -1,0 +1,46 @@
+[
+  {
+    "id": "contoh-buku-pelajaran",
+    "title": "Contoh Buku Matematika",
+    "author": "Tim Perpustakaan",
+    "category": "Pelajaran",
+    "year": "2026",
+    "publisher": "Koleksi Contoh Sekolah",
+    "location": "Rak Contoh A-1",
+    "totalCopies": 3,
+    "isBorrowable": true
+  },
+  {
+    "id": "contoh-buku-cerita",
+    "title": "Contoh Kumpulan Cerita Nusantara",
+    "author": "Tim Perpustakaan",
+    "category": "Fiksi",
+    "year": "2026",
+    "publisher": "Koleksi Contoh Sekolah",
+    "location": "Rak Contoh A-2",
+    "totalCopies": 2,
+    "isBorrowable": true
+  },
+  {
+    "id": "contoh-buku-referensi",
+    "title": "Contoh Ensiklopedia Sains",
+    "author": "Tim Perpustakaan",
+    "category": "Referensi",
+    "year": "2026",
+    "publisher": "Koleksi Contoh Sekolah",
+    "location": "Rak Referensi R-1",
+    "totalCopies": 2,
+    "isBorrowable": false
+  },
+  {
+    "id": "contoh-buku-arsip",
+    "title": "Contoh Buku Arsip Sejarah Sekolah",
+    "author": "Tim Perpustakaan",
+    "category": "Arsip",
+    "year": "2026",
+    "publisher": "Koleksi Contoh Sekolah",
+    "location": "Rak Arsip R-2",
+    "totalCopies": 1,
+    "isBorrowable": false
+  }
+]

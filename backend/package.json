@@ -5,7 +5,9 @@
   "main": "src/server.js",
   "scripts": {
     "dev": "node --watch-path=./src src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "seed:books": "node seed_books.js",
+    "test:seed-books": "node --test seed_books.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

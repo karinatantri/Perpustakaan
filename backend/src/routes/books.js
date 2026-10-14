@@ -161,7 +161,8 @@ router.get('/:id/qr-code', auth(['admin', 'officer', 'teacher', 'student', 'prin
 // Create book (auto-generate items if copies > 0)
 router.post('/', auth(['admin', 'officer']), async (req, res) => {
   try {
-    const { title, author, category, year, publisher, coverUrl, totalCopies = 0, location = '' } = req.body;
+    const { title, author, category, year, publisher, coverUrl, totalCopies = 0, location = '', isBorrowable = true } = req.body;
+    if (typeof isBorrowable !== 'boolean') return res.status(400).json({ message: 'Status peminjaman harus berupa boolean' });
     if (!title) return res.status(400).json({ message: 'title is required' });
     
     const now = new Date().toISOString();
@@ -169,6 +170,9 @@ router.post('/', auth(['admin', 'officer']), async (req, res) => {
     const existingSnap = await booksCol.where('title', '==', title.trim()).limit(1).get();
     
     if (!existingSnap.empty) {
+      if ((existingSnap.docs[0].data().isBorrowable !== false) !== isBorrowable) {
+        return res.status(400).json({ message: 'Buku dengan judul ini memiliki status peminjaman berbeda. Ubah status melalui Edit Buku.' });
+      }
       // Book exists, add to stock
       const existingDoc = existingSnap.docs[0];
       const existingData = existingDoc.data();
@@ -247,6 +251,7 @@ router.post('/', auth(['admin', 'officer']), async (req, res) => {
     // Simpan dokumen buku (commit terpisah agar payload kecil)
     await docRef.set({
       title: title.trim(),
+      isBorrowable,
       author: author || '',
       category: category || '',
       year: year || '',
@@ -320,6 +325,7 @@ router.get('/export', auth(['admin', 'officer', 'principal']), async (req, res) 
       Tahun: d.data().year || '-',
       Penerbit: d.data().publisher || '-',
       Stok: d.data().totalCopies || 0,
+      'Status Peminjaman': d.data().isBorrowable === false ? 'Tidak bisa dipinjam' : 'Bisa dipinjam',
       'Lokasi Rak': d.data().location || '-'
     }));
 
@@ -365,6 +371,14 @@ router.post('/import', auth(['admin', 'officer']), upload.single('file'), async 
         continue;
       }
 
+      const policyValue = row['Status Peminjaman'] ?? row.isBorrowable;
+      const policy = policyValue === undefined ? undefined : String(policyValue).trim().toLowerCase();
+      if (policy !== undefined && !['true', 'false', 'bisa dipinjam', 'tidak bisa dipinjam'].includes(policy)) {
+        errorCount++;
+        errors.push(`Row ${i + 2}: Status peminjaman tidak valid`);
+        continue;
+      }
+      const isBorrowable = policy === undefined ? undefined : ['true', 'bisa dipinjam'].includes(policy);
       try {
         // Check if book exists
         const existingSnap = await booksCol.where('title', '==', title).limit(1).get();
@@ -373,6 +387,9 @@ router.post('/import', auth(['admin', 'officer']), upload.single('file'), async 
           // Add to existing book
           const existingDoc = existingSnap.docs[0];
           const existingData = existingDoc.data();
+          if (isBorrowable !== undefined && (existingData.isBorrowable !== false) !== isBorrowable) {
+            throw new Error('Status peminjaman berbeda. Ubah melalui Edit Buku.');
+          }
           const newTotalCopies = (existingData.totalCopies || 0) + stok;
           
           const batch = db.batch();
@@ -424,6 +441,7 @@ router.post('/import', auth(['admin', 'officer']), upload.single('file'), async 
             year: String(row.Tahun || row.year || '').trim() || '-',
             publisher: String(row.Penerbit || row.publisher || '').trim() || '-',
             totalCopies: stok,
+            isBorrowable: isBorrowable !== false,
             location: String(row['Lokasi Rak'] || row.location || '').trim() || '-',
             qrCodeUrl, // QR code disimpan di level buku
             createdAt: now,
@@ -469,7 +487,7 @@ router.post('/import', auth(['admin', 'officer']), upload.single('file'), async 
 router.put('/:id', auth(['admin', 'officer']), async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, author, category, year, publisher, coverUrl, location } = req.body;
+    const { title, author, category, year, publisher, coverUrl, location, isBorrowable } = req.body;
     
     const bookDoc = await booksCol.doc(id).get();
     if (!bookDoc.exists) {
@@ -481,6 +499,10 @@ router.put('/:id', auth(['admin', 'officer']), async (req, res) => {
       updatedAt: now
     };
     
+    if (isBorrowable !== undefined) {
+      if (typeof isBorrowable !== 'boolean') return res.status(400).json({ message: 'Status peminjaman harus berupa boolean' });
+      updateData.isBorrowable = isBorrowable;
+    }
     if (title !== undefined) updateData.title = title.trim();
     if (author !== undefined) updateData.author = author;
     if (category !== undefined) updateData.category = category;

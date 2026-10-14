@@ -31,6 +31,21 @@ Aplikasi web dan mobile full-stack untuk mengelola sirkulasi perpustakaan sekola
 
 ## Fitur Utama
 
+### Contoh database status peminjaman buku
+
+Field `books.isBorrowable` menentukan apakah buku boleh dipinjam. Nilai `false` menolak peminjaman; data lama tanpa field ini tetap boleh dipinjam. Status dapat diubah melalui Tambah/Edit Buku dan ikut dalam impor/ekspor Excel pada kolom `Status Peminjaman`.
+
+Jalankan `npm run seed:books --prefix backend` dengan kredensial Firebase di `backend/.env`. Seed ini hanya menambahkan empat buku contoh beserta delapan eksemplar, tanpa menghapus data atau membuat transaksi. ID tetap membuat eksekusi ulang melewati buku contoh yang sudah ada, termasuk stok dan status eksemplar yang telah berubah.
+
+| Buku contoh | Bisa dipinjam | Eksemplar |
+|---|---|---|
+| Contoh Buku Matematika | Ya | 3 |
+| Contoh Kumpulan Cerita Nusantara | Ya | 2 |
+| Contoh Ensiklopedia Sains | Tidak | 2 |
+| Contoh Buku Arsip Sejarah Sekolah | Tidak | 1 |
+
+Data sumber: `backend/data/example-books.json`. Uji seed: `npm run test:seed-books --prefix backend`. Gunakan seed khusus ini untuk contoh status peminjaman.
+
 1. **Autentikasi & Otorisasi RBAC**:
    - Berbasis JSON Web Token (JWT) dengan pembagian hak akses: Admin, Petugas, Guru, Siswa, dan Kepala Sekolah.
 2. **Data Anggota Terpadu (Siswa & Guru)**:
